@@ -2,7 +2,7 @@ export interface User {
   id: string
   email: string
   nickname: string
-  password: string
+  password?: string
   avatarColor: string
 }
 
@@ -40,6 +40,7 @@ export interface GuessOption {
 export interface Message {
   id: string
   sender: Sender
+  senderId?: string
   text: string
   createdAt: number
   // AI interpretation
@@ -49,4 +50,5 @@ export interface Message {
   receiverHint: string
   understood: boolean
   expanded: boolean
+  interpretationId?: string
 }

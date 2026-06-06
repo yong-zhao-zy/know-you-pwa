@@ -9,13 +9,17 @@ import { AiInterpretationCard } from "@/components/ai-interpretation-card"
 import { BackgroundModal } from "@/components/background-modal"
 import { InsightDrawer } from "@/components/insight-drawer"
 import {
-  getMessages,
-  saveMessages,
   generateInterpretation,
   generateReceiverHint,
   generateGuessOptions,
   genId,
 } from "@/lib/storage"
+import {
+  createMessageBackend,
+  getMessagesBackend,
+  getOrCreateRoom,
+  updateInterpretationBackend,
+} from "@/lib/backend"
 import type { User, Friend, Message, Sender, ChatBackground } from "@/lib/types"
 
 export function ChatRoomPage({
@@ -34,83 +38,71 @@ export function ChatRoomPage({
   const [input, setInput] = useState("")
   const [recording, setRecording] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
+  const [roomId, setRoomId] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const userA = { nickname: currentUser.nickname, color: currentUser.avatarColor }
   const userB = { nickname: friend.nickname, color: friend.avatarColor }
 
-  // seed messages
   useEffect(() => {
-    const existing = getMessages(friend.id)
-    if (existing.length > 0) {
-      setMessages(existing)
-      return
+    let cancelled = false
+    getOrCreateRoom(currentUser.id, friend.id)
+      .then(async (nextRoomId) => {
+        if (cancelled) return
+        setRoomId(nextRoomId)
+        const nextMessages = await getMessagesBackend(nextRoomId, currentUser.id)
+        if (!cancelled) setMessages(nextMessages)
+      })
+      .catch(() => setMessages([]))
+    return () => {
+      cancelled = true
     }
-    const seed: Message[] = [
-      {
-        id: genId(),
-        sender: "B",
-        text: "你今天怎么不回我消息",
-        createdAt: Date.now() - 60000,
-        interpretation: generateInterpretation("你今天怎么不回我消息"),
-        guessOptions: generateGuessOptions().map((g, i) => ({
-          ...g,
-          checked: i === 0 || i === 3,
-        })),
-        confirmed: true,
-        receiverHint: generateReceiverHint("你今天怎么不回我消息"),
-        understood: false,
-        expanded: false,
-      },
-      {
-        id: genId(),
-        sender: "A",
-        text: "我只是在忙，没有故意的",
-        createdAt: Date.now() - 30000,
-        interpretation: generateInterpretation("我只是在忙，没有故意的"),
-        guessOptions: generateGuessOptions(),
-        confirmed: false,
-        receiverHint: generateReceiverHint("我只是在忙，没有故意的"),
-        understood: false,
-        expanded: false,
-      },
-    ]
-    setMessages(seed)
-    saveMessages(friend.id, seed)
-  }, [friend.id])
+  }, [currentUser.id, friend.id])
 
-  // persist + scroll
   useEffect(() => {
-    if (messages.length) saveMessages(friend.id, messages)
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
     })
-  }, [messages, friend.id])
+  }, [messages])
 
   const countA = useMemo(() => messages.filter((m) => m.sender === "A").length + 2, [messages])
   const countB = useMemo(() => messages.filter((m) => m.sender === "B").length + 1, [messages])
 
   function updateMessage(id: string, fn: (m: Message) => Message) {
-    setMessages((ms) => ms.map((m) => (m.id === id ? fn(m) : m)))
+    setMessages((ms) => {
+      const next = ms.map((m) => (m.id === id ? fn(m) : m))
+      const changed = next.find((m) => m.id === id)
+      if (changed) updateInterpretationBackend(changed).catch(() => {})
+      return next
+    })
   }
 
-  function handleSend() {
+  async function handleSend() {
     const text = input.trim()
-    if (!text) return
-    const msg: Message = {
-      id: genId(),
-      sender: "A",
-      text,
-      createdAt: Date.now(),
-      interpretation: generateInterpretation(text),
-      guessOptions: generateGuessOptions(),
-      confirmed: false,
-      receiverHint: generateReceiverHint(text),
-      understood: false,
-      expanded: false,
-    }
-    setMessages((ms) => [...ms, msg])
+    if (!text || !roomId || sending) return
     setInput("")
+    setSending(true)
+    try {
+      const msg = await createMessageBackend(roomId, text, background)
+      setMessages((ms) => [...ms, msg])
+    } catch {
+      const fallback: Message = {
+        id: genId(),
+        sender: "A",
+        text,
+        createdAt: Date.now(),
+        interpretation: generateInterpretation(text),
+        guessOptions: generateGuessOptions(),
+        confirmed: false,
+        receiverHint: generateReceiverHint(text),
+        understood: false,
+        expanded: false,
+      }
+      setMessages((ms) => [...ms, fallback])
+    } finally {
+      setSending(false)
+    }
   }
 
   function handleVoice() {
@@ -232,7 +224,7 @@ export function ChatRoomPage({
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || recording}
+            disabled={!input.trim() || recording || sending || !roomId}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-[#b98fcf] active:translate-y-px disabled:opacity-40"
             aria-label="发送"
           >

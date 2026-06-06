@@ -6,7 +6,7 @@ import { Mail, Lock, User as UserIcon, Sparkles } from "lucide-react"
 import { AppButton } from "@/components/app-button"
 import { TextField } from "@/components/text-field"
 import { useToast } from "@/components/toast"
-import { findUserByEmail, upsertUser, setCurrentUser, genId, pickColor } from "@/lib/storage"
+import { sendPasswordResetEmail, signInBackend, signUpBackend } from "@/lib/backend"
 import type { User } from "@/lib/types"
 
 type Mode = "login" | "register" | "reset"
@@ -31,58 +31,52 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
     setError("")
   }
 
-  function handleLogin() {
+  async function handleLogin() {
     setError("")
-    const user = findUserByEmail(email)
-    if (!user || user.password !== password) {
+    setVerifying(true)
+    try {
+      const user = await signInBackend(email, password)
+      onAuthed(user)
+    } catch {
       setError("邮箱或密码不正确")
-      return
+    } finally {
+      setVerifying(false)
     }
-    setCurrentUser(user)
-    onAuthed(user)
   }
 
-  function handleRegister() {
+  async function handleRegister() {
     setError("")
-    const existing = findUserByEmail(email)
-    if (!email || !password || (mode === "register" && !nickname)) {
+    if (!email || (mode !== "reset" && !password) || (mode === "register" && !nickname)) {
       setError("请完整填写所有信息")
       return
     }
-    if (password !== confirm) {
+    if (mode !== "reset" && password !== confirm) {
       setError("两次输入的密码不一致")
-      return
-    }
-    if (mode === "reset" && !existing && !nickname) {
-      setError("新邮箱需要填写昵称")
       return
     }
 
     setVerifying(true)
-    toast("验证邮件已发送，请前往邮箱确认注册")
-
-    // simulate email confirmation click after 1.5s
-    setTimeout(() => {
-      const user: User = {
-        id: existing?.id ?? genId(),
-        email,
-        nickname: mode === "reset" && existing && !nickname ? existing.nickname : nickname,
-        password,
-        avatarColor: existing?.avatarColor ?? pickColor(),
+    try {
+      if (mode === "reset") {
+        await sendPasswordResetEmail(email)
+        toast("重置邮件已发送，请前往邮箱继续")
+      } else {
+        await signUpBackend(email, password, nickname)
+        toast("验证邮件已发送，请前往邮箱确认注册")
       }
-      upsertUser(user)
-      setVerifying(false)
-      // switch to login, prefill values
       setMode("login")
       setEmail(email)
-      setPassword(password)
+      setPassword(mode === "reset" ? "" : password)
       setNickname("")
       setConfirm("")
-      toast(mode === "reset" ? "重置成功，请用新密码登录" : "邮箱已确认，请登录")
-    }, 1500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "操作失败，请稍后再试")
+    } finally {
+      setVerifying(false)
+    }
   }
 
-  const isRegisterLike = mode === "register" || mode === "reset"
+  const isRegisterLike = mode === "register"
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
@@ -126,7 +120,7 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
           {isRegisterLike && (
             <Field icon={<UserIcon className="h-4 w-4" />}>
               <TextField
-                placeholder={mode === "reset" ? "昵称（可留空保持原昵称）" : "昵称"}
+                placeholder="昵称"
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
                 className="border-0 bg-transparent pl-0 focus:ring-0"
@@ -134,17 +128,19 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
             </Field>
           )}
 
-          <Field icon={<Lock className="h-4 w-4" />}>
-            <TextField
-              type="password"
-              placeholder={isRegisterLike ? "设置密码" : "密码"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="border-0 bg-transparent pl-0 focus:ring-0"
-            />
-          </Field>
+          {mode !== "reset" && (
+            <Field icon={<Lock className="h-4 w-4" />}>
+              <TextField
+                type="password"
+                placeholder={isRegisterLike ? "设置密码" : "密码"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="border-0 bg-transparent pl-0 focus:ring-0"
+              />
+            </Field>
+          )}
 
-          {isRegisterLike && (
+          {mode === "register" && (
             <Field icon={<Lock className="h-4 w-4" />}>
               <TextField
                 type="password"
@@ -165,11 +161,11 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
             onClick={isRegisterLike ? handleRegister : handleLogin}
           >
             {verifying
-              ? "邮箱验证中…"
+              ? "处理中…"
               : mode === "login"
                 ? "登录"
                 : mode === "reset"
-                  ? "重置并验证"
+                  ? "发送重置邮件"
                   : "注册"}
           </AppButton>
 

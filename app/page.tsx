@@ -5,7 +5,7 @@ import { ToastProvider } from "@/components/toast"
 import { AuthPage } from "@/components/auth-page"
 import { FriendHomePage } from "@/components/friend-home-page"
 import { ChatRoomPage } from "@/components/chat-room-page"
-import { seedIfNeeded, getCurrentUser, setCurrentUser } from "@/lib/storage"
+import { getCurrentBackendUser, signOutBackend } from "@/lib/backend"
 import type { User, Friend } from "@/lib/types"
 
 type Screen = "auth" | "home" | "chat"
@@ -17,13 +17,18 @@ export default function Page() {
   const [activeFriend, setActiveFriend] = useState<Friend | null>(null)
 
   useEffect(() => {
-    seedIfNeeded()
-    const current = getCurrentUser()
-    if (current) {
-      setUser(current)
-      setScreen("home")
-    }
-    setReady(true)
+    getCurrentBackendUser()
+      .then((current) => {
+        if (current) {
+          setUser(current)
+          setScreen("home")
+        }
+      })
+      .catch(() => {
+        setUser(null)
+        setScreen("auth")
+      })
+      .finally(() => setReady(true))
   }, [])
 
   if (!ready) {
@@ -46,9 +51,10 @@ export default function Page() {
           <FriendHomePage
             currentUser={user}
             onLogout={() => {
-              setCurrentUser(null)
-              setUser(null)
-              setScreen("auth")
+              signOutBackend().finally(() => {
+                setUser(null)
+                setScreen("auth")
+              })
             }}
             onEnterChat={(f) => {
               setActiveFriend(f)

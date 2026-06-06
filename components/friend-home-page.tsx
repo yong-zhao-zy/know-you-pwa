@@ -7,7 +7,13 @@ import { Avatar } from "@/components/avatar"
 import { AppButton } from "@/components/app-button"
 import { TextField } from "@/components/text-field"
 import { useToast } from "@/components/toast"
-import { getFriends, addFriend, findUserByEmail, genId, pickColor } from "@/lib/storage"
+import {
+  getFriendRequestsBackend,
+  getFriendsBackend,
+  respondFriendRequestBackend,
+  searchProfileByEmail,
+  sendFriendRequestBackend,
+} from "@/lib/backend"
 import type { User, Friend, FriendRequest, PublicUser } from "@/lib/types"
 
 export function FriendHomePage({
@@ -25,19 +31,30 @@ export function FriendHomePage({
   const [searchEmail, setSearchEmail] = useState("")
   const [searchResult, setSearchResult] = useState<PublicUser | null>(null)
   const [requestSent, setRequestSent] = useState(false)
+  const [loading, setLoading] = useState(true)
   const menuRef = useRef<HTMLDivElement>(null)
-
-  const [requests, setRequests] = useState<FriendRequest[]>([
-    {
-      id: "req_1",
-      status: "pending",
-      fromUser: { id: "u_mu", email: "mumu@knowyou.com", nickname: "木木", avatarColor: "#FBE7C6" },
-    },
-  ])
+  const [requests, setRequests] = useState<FriendRequest[]>([])
 
   useEffect(() => {
-    setFriends(getFriends())
-  }, [])
+    refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser.id])
+
+  async function refresh() {
+    setLoading(true)
+    try {
+      const [nextFriends, nextRequests] = await Promise.all([
+        getFriendsBackend(currentUser.id),
+        getFriendRequestsBackend(currentUser.id),
+      ])
+      setFriends(nextFriends)
+      setRequests(nextRequests)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "加载好友失败")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -47,42 +64,26 @@ export function FriendHomePage({
     return () => document.removeEventListener("mousedown", onClick)
   }, [])
 
-  function handleSearch() {
+  async function handleSearch() {
     setRequestSent(false)
-    const found = findUserByEmail(searchEmail)
-    if (found && found.email !== currentUser.email) {
-      setSearchResult({
-        id: found.id,
-        email: found.email,
-        nickname: found.nickname,
-        avatarColor: found.avatarColor,
-      })
-    } else {
-      // simulate a found stranger
-      setSearchResult({
-        id: genId(),
-        email: searchEmail || "someone@knowyou.com",
-        nickname: searchEmail ? searchEmail.split("@")[0] : "陌生人",
-        avatarColor: pickColor(),
-      })
+    if (!searchEmail.trim()) return
+    try {
+      const found = await searchProfileByEmail(searchEmail, currentUser.id)
+      setSearchResult(found)
+      if (!found) toast("没有找到这个邮箱对应的用户")
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "搜索失败")
     }
   }
 
-  function handleAcceptRequest(id: string) {
-    setRequests((rs) =>
-      rs.map((r) => {
-        if (r.id === id) {
-          addFriend(r.fromUser)
-          setFriends(getFriends())
-          return { ...r, status: "accepted" as const }
-        }
-        return r
-      }),
-    )
+  async function handleAcceptRequest(id: string) {
+    await respondFriendRequestBackend(id, "accepted")
     toast("已添加为好友")
+    refresh()
   }
 
-  function handleRejectRequest(id: string) {
+  async function handleRejectRequest(id: string) {
+    await respondFriendRequestBackend(id, "rejected")
     setRequests((rs) => rs.map((r) => (r.id === id ? { ...r, status: "rejected" as const } : r)))
   }
 
@@ -169,7 +170,8 @@ export function FriendHomePage({
                   variant={requestSent ? "soft" : "primary"}
                   className="h-9 shrink-0 px-3 text-xs"
                   disabled={requestSent}
-                  onClick={() => {
+                  onClick={async () => {
+                    await sendFriendRequestBackend(searchResult.id)
                     setRequestSent(true)
                     toast("好友申请已发送")
                   }}

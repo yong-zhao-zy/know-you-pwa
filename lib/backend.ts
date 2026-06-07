@@ -1,6 +1,7 @@
 import { requireSupabaseBrowserClient } from "@/lib/supabase/client"
 import { generateGuessOptions, generateInterpretation, generateReceiverHint, genId, pickColor } from "@/lib/storage"
 import type { Friend, FriendRequest, GuessOption, Message, PublicUser, Sender, User } from "@/lib/types"
+import type { User as SupabaseAuthUser } from "@supabase/supabase-js"
 
 type ProfileRow = {
   id: string
@@ -62,19 +63,24 @@ export async function getCurrentBackendUser(): Promise<User | null> {
   const { data: authData, error: authError } = await supabase.auth.getUser()
   if (authError || !authData.user) return null
 
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", authData.user.id).maybeSingle()
+  return getOrCreateProfileForAuthUser(authData.user)
+}
+
+async function getOrCreateProfileForAuthUser(authUser: SupabaseAuthUser): Promise<User> {
+  const supabase = requireSupabaseBrowserClient()
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle()
   if (error) throw error
   if (data) return mapProfile(data as ProfileRow)
 
   const profile: ProfileRow = {
-    id: authData.user.id,
-    email: authData.user.email ?? "",
-    nickname: authData.user.user_metadata?.nickname ?? authData.user.email?.split("@")[0] ?? "新用户",
-    avatar_color: authData.user.user_metadata?.avatar_color ?? pickColor(),
+    id: authUser.id,
+    email: authUser.email ?? "",
+    nickname: authUser.user_metadata?.nickname ?? authUser.email?.split("@")[0] ?? "新用户",
+    avatar_color: authUser.user_metadata?.avatar_color ?? pickColor(),
   }
   const { data: inserted, error: insertError } = await supabase
     .from("profiles")
-    .insert(profile)
+    .upsert(profile, { onConflict: "id" })
     .select("*")
     .single()
   if (insertError) throw insertError
@@ -152,11 +158,10 @@ export function translateAuthError(message: string) {
 
 export async function signInBackend(email: string, password: string): Promise<User> {
   const supabase = requireSupabaseBrowserClient()
-  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+  const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
   if (error) throw new Error(translateAuthError(error.message))
-  const user = await getCurrentBackendUser()
-  if (!user) throw new Error("登录失败，请稍后重试")
-  return user
+  if (!data.user) throw new Error("登录失败，请稍后再试")
+  return getOrCreateProfileForAuthUser(data.user)
 }
 
 export async function signUpBackend(email: string, password: string, nickname: string) {

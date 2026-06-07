@@ -217,3 +217,19 @@ for update to authenticated using (
 drop policy if exists "password_reset_select_friend" on public.password_reset_requests;
 create policy "password_reset_select_friend" on public.password_reset_requests
 for select to authenticated using (auth.uid() = friend_user);
+
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update on public.profiles to authenticated;
+grant select, insert, update on public.friend_requests to authenticated;
+grant select, insert on public.friendships to authenticated;
+grant select, insert on public.chat_rooms to authenticated;
+grant select, insert on public.messages to authenticated;
+grant select, insert, update on public.ai_interpretations to authenticated;
+grant select on public.password_reset_requests to authenticated;
+grant all on public.profiles to service_role;
+grant all on public.friend_requests to service_role;
+grant all on public.friendships to service_role;
+grant all on public.chat_rooms to service_role;
+grant all on public.messages to service_role;
+grant all on public.ai_interpretations to service_role;
+grant all on public.password_reset_requests to service_role;

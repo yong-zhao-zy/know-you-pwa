@@ -15,17 +15,21 @@ export default function Page() {
   const [screen, setScreen] = useState<Screen>("auth")
   const [user, setUser] = useState<User | null>(null)
   const [activeFriend, setActiveFriend] = useState<Friend | null>(null)
+  const [authError, setAuthError] = useState("")
 
   useEffect(() => {
     completeAuthRedirect()
       .then(async (result) => {
+        if (result.error) setAuthError(result.error)
         const current = result.user ?? (await getCurrentBackendUser())
         if (current) {
           setUser(current)
           setScreen("home")
+          setAuthError("")
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        setAuthError(err instanceof Error ? err.message : "登录状态检查失败，请重新登录")
         setUser(null)
         setScreen("auth")
       })
@@ -44,7 +48,9 @@ export default function Page() {
             onAuthed={(u) => {
               setUser(u)
               setScreen("home")
+              setAuthError("")
             }}
+            initialError={authError}
           />
         )}
 

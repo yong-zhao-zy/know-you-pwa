@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import { Mail, Lock, User as UserIcon, Sparkles } from "lucide-react"
 import { AppButton } from "@/components/app-button"
@@ -11,7 +11,7 @@ import type { User } from "@/lib/types"
 
 type Mode = "login" | "register" | "reset"
 
-export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
+export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: User) => void; initialError?: string }) {
   const toast = useToast()
   const [mode, setMode] = useState<Mode>("login")
 
@@ -22,6 +22,10 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
   const [confirm, setConfirm] = useState("")
   const [error, setError] = useState("")
   const [verifying, setVerifying] = useState(false)
+
+  useEffect(() => {
+    setError(initialError)
+  }, [initialError])
 
   function resetFields(nextEmail = "", nextPassword = "") {
     setEmail(nextEmail)
@@ -35,7 +39,7 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
     setError("")
     setVerifying(true)
     try {
-      const user = await signInBackend(email, password)
+      const user = await signInBackend(email.trim(), password)
       onAuthed(user)
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败，请稍后再试")
@@ -46,7 +50,8 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
 
   async function handleRegister() {
     setError("")
-    if (!email || (mode !== "reset" && !password) || (mode === "register" && !nickname)) {
+    const cleanEmail = email.trim()
+    if (!cleanEmail || (mode !== "reset" && !password) || (mode === "register" && !nickname.trim())) {
       setError("请完整填写所有信息")
       return
     }
@@ -58,14 +63,14 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
     setVerifying(true)
     try {
       if (mode === "reset") {
-        await sendPasswordResetEmail(email)
+        await sendPasswordResetEmail(cleanEmail)
         toast("重置邮件已发送，请前往邮箱继续")
       } else {
-        await signUpBackend(email, password, nickname)
+        await signUpBackend(cleanEmail, password, nickname.trim())
         toast("验证邮件已发送，请前往邮箱确认注册")
       }
       setMode("login")
-      setEmail(email)
+      setEmail(cleanEmail)
       setPassword(mode === "reset" ? "" : password)
       setNickname("")
       setConfirm("")

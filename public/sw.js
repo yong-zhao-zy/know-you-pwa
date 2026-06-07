@@ -1,5 +1,5 @@
-const CACHE_NAME = "knowyou-v1"
-const PRECACHE = ["/", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"]
+const CACHE_NAME = "knowyou-v2"
+const PRECACHE = ["/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"]
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -21,17 +21,9 @@ self.addEventListener("fetch", (event) => {
   const { request } = event
   if (request.method !== "GET") return
 
-  // Network-first for navigations, cache fallback for offline.
+  // Always load pages from the network so auth callbacks and fresh deployments work.
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((res) => {
-          const copy = res.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
-          return res
-        })
-        .catch(() => caches.match(request).then((r) => r || caches.match("/"))),
-    )
+    event.respondWith(fetch(request))
     return
   }
 

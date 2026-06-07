@@ -108,17 +108,35 @@ export async function completeAuthRedirect(): Promise<{ user: User | null; error
     }
   }
 
-  const code = params.get("code")
-  if (!code) return { user: null, error: null }
-
   const supabase = requireSupabaseBrowserClient()
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
-  window.history.replaceState({}, document.title, window.location.pathname)
-  if (error) {
-    return { user: null, error: translateAuthError(error.message) }
+
+  const code = params.get("code")
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    window.history.replaceState({}, document.title, window.location.pathname)
+    if (error) {
+      return { user: null, error: translateAuthError(error.message) }
+    }
+
+    return { user: await getCurrentBackendUser(), error: null }
   }
 
-  return { user: await getCurrentBackendUser(), error: null }
+  const accessToken = params.get("access_token")
+  const refreshToken = params.get("refresh_token")
+  if (accessToken && refreshToken) {
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    })
+    window.history.replaceState({}, document.title, window.location.pathname)
+    if (error) {
+      return { user: null, error: translateAuthError(error.message) }
+    }
+
+    return { user: await getCurrentBackendUser(), error: null }
+  }
+
+  return { user: null, error: null }
 }
 
 export function translateAuthError(message: string) {
@@ -134,7 +152,7 @@ export function translateAuthError(message: string) {
 
 export async function signInBackend(email: string, password: string): Promise<User> {
   const supabase = requireSupabaseBrowserClient()
-  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
   if (error) throw new Error(translateAuthError(error.message))
   const user = await getCurrentBackendUser()
   if (!user) throw new Error("登录失败，请稍后重试")
@@ -144,12 +162,12 @@ export async function signInBackend(email: string, password: string): Promise<Us
 export async function signUpBackend(email: string, password: string, nickname: string) {
   const supabase = requireSupabaseBrowserClient()
   const { error } = await supabase.auth.signUp({
-    email,
+    email: email.trim(),
     password,
     options: {
       emailRedirectTo: typeof window === "undefined" ? undefined : window.location.origin,
       data: {
-        nickname,
+        nickname: nickname.trim(),
         avatar_color: pickColor(),
       },
     },
@@ -159,7 +177,7 @@ export async function signUpBackend(email: string, password: string, nickname: s
 
 export async function sendPasswordResetEmail(email: string) {
   const supabase = requireSupabaseBrowserClient()
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
     redirectTo: typeof window === "undefined" ? undefined : window.location.origin,
   })
   if (error) throw new Error(translateAuthError(error.message))

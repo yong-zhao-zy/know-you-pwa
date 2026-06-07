@@ -60,6 +60,19 @@ create table if not exists public.ai_interpretations (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.password_reset_requests (
+  id uuid primary key default gen_random_uuid(),
+  account_user uuid not null references public.profiles(id) on delete cascade,
+  friend_user uuid not null references public.profiles(id) on delete cascade,
+  code text not null,
+  status text not null default 'pending' check (status in ('pending', 'used', 'expired')),
+  expires_at timestamptz not null,
+  used_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (account_user <> friend_user)
+);
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -115,6 +128,7 @@ alter table public.friendships enable row level security;
 alter table public.chat_rooms enable row level security;
 alter table public.messages enable row level security;
 alter table public.ai_interpretations enable row level security;
+alter table public.password_reset_requests enable row level security;
 
 drop policy if exists "profiles_select_authenticated" on public.profiles;
 create policy "profiles_select_authenticated" on public.profiles
@@ -199,3 +213,7 @@ for update to authenticated using (
     where m.id = message_id and (r.user_a = auth.uid() or r.user_b = auth.uid())
   )
 );
+
+drop policy if exists "password_reset_select_friend" on public.password_reset_requests;
+create policy "password_reset_select_friend" on public.password_reset_requests
+for select to authenticated using (auth.uid() = friend_user);

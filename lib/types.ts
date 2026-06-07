@@ -21,6 +21,14 @@ export interface PublicUser {
 
 export interface Friend extends PublicUser {}
 
+export interface PasswordResetInboxItem {
+  id: string
+  code: string
+  expiresAt: string
+  createdAt: string
+  account: PublicUser | null
+}
+
 export type EmotionState = "calm" | "anxious" | "wronged" | "angry" | "other"
 
 export interface ChatBackground {

@@ -1,6 +1,6 @@
 import { requireSupabaseBrowserClient } from "@/lib/supabase/client"
 import { generateGuessOptions, generateInterpretation, generateReceiverHint, genId, pickColor } from "@/lib/storage"
-import type { Friend, FriendRequest, GuessOption, Message, PublicUser, Sender, User } from "@/lib/types"
+import type { Friend, FriendRequest, GuessOption, Message, PasswordResetInboxItem, PublicUser, Sender, User } from "@/lib/types"
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js"
 
 type ProfileRow = {
@@ -179,19 +179,14 @@ export async function signInBackend(email: string, password: string): Promise<Us
 }
 
 export async function signUpBackend(email: string, password: string, nickname: string) {
-  const supabase = requireSupabaseBrowserClient()
-  const { error } = await supabase.auth.signUp({
-    email: email.trim(),
-    password,
-    options: {
-      emailRedirectTo: typeof window === "undefined" ? undefined : window.location.origin,
-      data: {
-        nickname: nickname.trim(),
-        avatar_color: pickColor(),
-      },
-    },
+  const response = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim(), password, nickname: nickname.trim() }),
   })
-  if (error) throw new Error(translateAuthError(error.message))
+  const payload = (await response.json().catch(() => ({}))) as { error?: string }
+  if (!response.ok) throw new Error(translateAuthError(payload.error || "注册失败，请稍后再试"))
+  return signInBackend(email, password)
 }
 
 export async function resendSignupEmail(email: string) {
@@ -212,6 +207,55 @@ export async function sendPasswordResetEmail(email: string) {
     redirectTo: typeof window === "undefined" ? undefined : window.location.origin,
   })
   if (error) throw new Error(translateAuthError(error.message))
+}
+
+export async function getPasswordResetFriends(email: string): Promise<Friend[]> {
+  const response = await fetch("/api/password-reset/friends", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim() }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as { friends?: Friend[]; error?: string }
+  if (!response.ok) throw new Error(payload.error || "获取好友列表失败")
+  return payload.friends ?? []
+}
+
+export async function requestFriendPasswordReset(email: string, friendId: string) {
+  const response = await fetch("/api/password-reset/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim(), friendId }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as { error?: string; requestId?: string }
+  if (!response.ok) throw new Error(payload.error || "验证码发送失败")
+  return payload
+}
+
+export async function confirmFriendPasswordReset(email: string, code: string, newPassword: string) {
+  const response = await fetch("/api/password-reset/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email.trim(), code: code.trim(), newPassword }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as { error?: string }
+  if (!response.ok) throw new Error(payload.error || "密码修改失败")
+}
+
+export async function getPasswordResetInbox(): Promise<PasswordResetInboxItem[]> {
+  const supabase = requireSupabaseBrowserClient()
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  if (!token) return []
+
+  const response = await fetch("/api/password-reset/inbox", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  const payload = (await response.json().catch(() => ({}))) as {
+    requests?: PasswordResetInboxItem[]
+    error?: string
+  }
+  if (!response.ok) throw new Error(payload.error || "获取验证码失败")
+  return payload.requests ?? []
 }
 
 export async function signOutBackend() {

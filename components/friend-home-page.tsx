@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Search, ChevronDown, LogOut, Settings, MessageCircle, UserPlus, Sparkles } from "lucide-react"
+import { Search, ChevronDown, LogOut, Settings, MessageCircle, UserPlus, Sparkles, KeyRound } from "lucide-react"
 import { Avatar } from "@/components/avatar"
 import { AppButton } from "@/components/app-button"
 import { TextField } from "@/components/text-field"
@@ -10,11 +10,12 @@ import { useToast } from "@/components/toast"
 import {
   getFriendRequestsBackend,
   getFriendsBackend,
+  getPasswordResetInbox,
   respondFriendRequestBackend,
   searchProfileByEmail,
   sendFriendRequestBackend,
 } from "@/lib/backend"
-import type { User, Friend, FriendRequest, PublicUser } from "@/lib/types"
+import type { User, Friend, FriendRequest, PasswordResetInboxItem, PublicUser } from "@/lib/types"
 
 export function FriendHomePage({
   currentUser,
@@ -34,6 +35,7 @@ export function FriendHomePage({
   const [loading, setLoading] = useState(true)
   const menuRef = useRef<HTMLDivElement>(null)
   const [requests, setRequests] = useState<FriendRequest[]>([])
+  const [resetInbox, setResetInbox] = useState<PasswordResetInboxItem[]>([])
 
   useEffect(() => {
     refresh()
@@ -47,8 +49,10 @@ export function FriendHomePage({
         getFriendsBackend(currentUser.id),
         getFriendRequestsBackend(currentUser.id),
       ])
+      const nextResetInbox = await getPasswordResetInbox()
       setFriends(nextFriends)
       setRequests(nextRequests)
+      setResetInbox(nextResetInbox)
     } catch (err) {
       toast(err instanceof Error ? err.message : "加载好友失败")
     } finally {
@@ -181,6 +185,31 @@ export function FriendHomePage({
               </motion.div>
             )}
           </AnimatePresence>
+        </Section>
+
+        {/* password reset codes */}
+        <Section title="好友密码验证码" icon={<KeyRound className="h-4 w-4" />}>
+          {resetInbox.length === 0 && <Empty text="暂无需要你转告的验证码" />}
+          <div className="flex flex-col gap-2">
+            {resetInbox.map((item) => (
+              <div key={item.id} className="rounded-xl border border-border bg-card p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {item.account?.nickname ?? "好友"} 正在找回密码
+                    </p>
+                    <p className="truncate text-xs text-text-secondary">{item.account?.email}</p>
+                  </div>
+                  <span className="rounded-lg bg-primary/15 px-3 py-1.5 text-base font-semibold tracking-widest text-primary">
+                    {item.code}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-text-secondary">
+                  请只把验证码转告给你确认是本人的好友，验证码 10 分钟内有效。
+                </p>
+              </div>
+            ))}
+          </div>
         </Section>
 
         {/* friend requests */}

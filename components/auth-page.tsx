@@ -6,8 +6,14 @@ import { Mail, Lock, User as UserIcon, Sparkles } from "lucide-react"
 import { AppButton } from "@/components/app-button"
 import { TextField } from "@/components/text-field"
 import { useToast } from "@/components/toast"
-import { resendSignupEmail, sendPasswordResetEmail, signInBackend, signUpBackend } from "@/lib/backend"
-import type { User } from "@/lib/types"
+import {
+  confirmFriendPasswordReset,
+  getPasswordResetFriends,
+  requestFriendPasswordReset,
+  signInBackend,
+  signUpBackend,
+} from "@/lib/backend"
+import type { Friend, User } from "@/lib/types"
 
 type Mode = "login" | "register" | "reset"
 
@@ -22,6 +28,9 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
   const [confirm, setConfirm] = useState("")
   const [error, setError] = useState("")
   const [verifying, setVerifying] = useState(false)
+  const [resetFriends, setResetFriends] = useState<Friend[]>([])
+  const [selectedResetFriend, setSelectedResetFriend] = useState<Friend | null>(null)
+  const [resetCode, setResetCode] = useState("")
 
   useEffect(() => {
     setError(initialError)
@@ -33,6 +42,9 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
     setNickname("")
     setConfirm("")
     setError("")
+    setResetFriends([])
+    setSelectedResetFriend(null)
+    setResetCode("")
   }
 
   async function handleLogin() {
@@ -51,29 +63,20 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
   async function handleRegister() {
     setError("")
     const cleanEmail = email.trim()
-    if (!cleanEmail || (mode !== "reset" && !password) || (mode === "register" && !nickname.trim())) {
+    if (!cleanEmail || !password || (mode === "register" && !nickname.trim())) {
       setError("请完整填写所有信息")
       return
     }
-    if (mode !== "reset" && password !== confirm) {
+    if (password !== confirm) {
       setError("两次输入的密码不一致")
       return
     }
 
     setVerifying(true)
     try {
-      if (mode === "reset") {
-        await sendPasswordResetEmail(cleanEmail)
-        toast("重置邮件已发送，请前往邮箱继续")
-      } else {
-        await signUpBackend(cleanEmail, password, nickname.trim())
-        toast("验证邮件已发送，请前往邮箱确认注册")
-      }
-      setMode("login")
-      setEmail(cleanEmail)
-      setPassword(mode === "reset" ? "" : password)
-      setNickname("")
-      setConfirm("")
+      const user = await signUpBackend(cleanEmail, password, nickname.trim())
+      toast("注册成功，已自动登录")
+      onAuthed(user)
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败，请稍后再试")
     } finally {
@@ -81,7 +84,7 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
     }
   }
 
-  async function handleResendVerification() {
+  async function handleFindResetFriends() {
     const cleanEmail = email.trim()
     if (!cleanEmail) {
       setError("请先填写邮箱")
@@ -91,10 +94,56 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
     setError("")
     setVerifying(true)
     try {
-      await resendSignupEmail(cleanEmail)
-      toast("验证邮件已重新发送，请检查收件箱和垃圾邮件")
+      const friends = await getPasswordResetFriends(cleanEmail)
+      setResetFriends(friends)
+      setSelectedResetFriend(null)
+      if (friends.length === 0) {
+        setError("这个账号还没有好友，暂时无法通过好友验证码找回密码")
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "验证邮件发送失败，请稍后再试")
+      setError(err instanceof Error ? err.message : "获取好友列表失败")
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  async function handleRequestResetCode(friend: Friend) {
+    setError("")
+    setVerifying(true)
+    try {
+      await requestFriendPasswordReset(email.trim(), friend.id)
+      setSelectedResetFriend(friend)
+      toast(`验证码已发送给 ${friend.nickname}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "验证码发送失败")
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  async function handleConfirmReset() {
+    setError("")
+    if (!email.trim() || !resetCode.trim() || !password || !confirm) {
+      setError("请填写验证码和新密码")
+      return
+    }
+    if (password !== confirm) {
+      setError("两次输入的新密码不一致")
+      return
+    }
+
+    setVerifying(true)
+    try {
+      await confirmFriendPasswordReset(email.trim(), resetCode, password)
+      toast("密码已更新，请使用新密码登录")
+      setMode("login")
+      setPassword("")
+      setConfirm("")
+      setResetCode("")
+      setResetFriends([])
+      setSelectedResetFriend(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "密码修改失败")
     } finally {
       setVerifying(false)
     }
@@ -176,20 +225,79 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
             </Field>
           )}
 
+          {mode === "reset" && (
+            <>
+              {resetFriends.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {resetFriends.map((friend) => (
+                    <button
+                      key={friend.id}
+                      type="button"
+                      onClick={() => handleRequestResetCode(friend)}
+                      disabled={verifying}
+                      className={`rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
+                        selectedResetFriend?.id === friend.id
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border bg-card text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span className="block font-medium">{friend.nickname}</span>
+                      <span className="block truncate text-xs text-text-secondary">{friend.email}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selectedResetFriend && (
+                <>
+                  <Field icon={<Lock className="h-4 w-4" />}>
+                    <TextField
+                      inputMode="numeric"
+                      placeholder="输入好友收到的 6 位验证码"
+                      value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value)}
+                      className="border-0 bg-transparent pl-0 focus:ring-0"
+                    />
+                  </Field>
+                  <Field icon={<Lock className="h-4 w-4" />}>
+                    <TextField
+                      type="password"
+                      placeholder="设置新密码"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="border-0 bg-transparent pl-0 focus:ring-0"
+                    />
+                  </Field>
+                  <Field icon={<Lock className="h-4 w-4" />}>
+                    <TextField
+                      type="password"
+                      placeholder="再次确认新密码"
+                      value={confirm}
+                      onChange={(e) => setConfirm(e.target.value)}
+                      className="border-0 bg-transparent pl-0 focus:ring-0"
+                    />
+                  </Field>
+                </>
+              )}
+            </>
+          )}
+
           {error && <p className="px-1 text-xs text-[#d98a8a]">{error}</p>}
 
           <AppButton
             full
             className="mt-2"
             disabled={verifying}
-            onClick={mode === "login" ? handleLogin : handleRegister}
+            onClick={mode === "login" ? handleLogin : mode === "reset" ? selectedResetFriend ? handleConfirmReset : handleFindResetFriends : handleRegister}
           >
             {verifying
               ? "处理中…"
               : mode === "login"
                 ? "登录"
                 : mode === "reset"
-                  ? "发送重置邮件"
+                  ? selectedResetFriend
+                    ? "确认修改密码"
+                    : "选择好友验证"
                   : "注册"}
           </AppButton>
 
@@ -203,13 +311,6 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
                 className="text-xs text-text-secondary transition-colors hover:text-foreground"
               >
                 忘记密码？
-              </button>
-              <button
-                onClick={handleResendVerification}
-                disabled={verifying}
-                className="text-xs text-primary transition-colors hover:text-primary/80 disabled:opacity-50"
-              >
-                没收到邮件？
               </button>
             </div>
           )}

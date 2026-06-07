@@ -194,6 +194,18 @@ export async function signUpBackend(email: string, password: string, nickname: s
   if (error) throw new Error(translateAuthError(error.message))
 }
 
+export async function resendSignupEmail(email: string) {
+  const supabase = requireSupabaseBrowserClient()
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: email.trim(),
+    options: {
+      emailRedirectTo: typeof window === "undefined" ? undefined : window.location.origin,
+    },
+  })
+  if (error) throw new Error(translateAuthError(error.message))
+}
+
 export async function sendPasswordResetEmail(email: string) {
   const supabase = requireSupabaseBrowserClient()
   const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {

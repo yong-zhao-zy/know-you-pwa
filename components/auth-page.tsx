@@ -6,7 +6,7 @@ import { Mail, Lock, User as UserIcon, Sparkles } from "lucide-react"
 import { AppButton } from "@/components/app-button"
 import { TextField } from "@/components/text-field"
 import { useToast } from "@/components/toast"
-import { sendPasswordResetEmail, signInBackend, signUpBackend } from "@/lib/backend"
+import { resendSignupEmail, sendPasswordResetEmail, signInBackend, signUpBackend } from "@/lib/backend"
 import type { User } from "@/lib/types"
 
 type Mode = "login" | "register" | "reset"
@@ -76,6 +76,25 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
       setConfirm("")
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败，请稍后再试")
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  async function handleResendVerification() {
+    const cleanEmail = email.trim()
+    if (!cleanEmail) {
+      setError("请先填写邮箱")
+      return
+    }
+
+    setError("")
+    setVerifying(true)
+    try {
+      await resendSignupEmail(cleanEmail)
+      toast("验证邮件已重新发送，请检查收件箱和垃圾邮件")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "验证邮件发送失败，请稍后再试")
     } finally {
       setVerifying(false)
     }
@@ -175,15 +194,24 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
           </AppButton>
 
           {mode === "login" && (
-            <button
-              onClick={() => {
-                setMode("reset")
-                resetFields()
-              }}
-              className="mt-1 self-center text-xs text-text-secondary transition-colors hover:text-foreground"
-            >
-              忘记密码？
-            </button>
+            <div className="mt-1 flex items-center justify-center gap-4">
+              <button
+                onClick={() => {
+                  setMode("reset")
+                  resetFields()
+                }}
+                className="text-xs text-text-secondary transition-colors hover:text-foreground"
+              >
+                忘记密码？
+              </button>
+              <button
+                onClick={handleResendVerification}
+                disabled={verifying}
+                className="text-xs text-primary transition-colors hover:text-primary/80 disabled:opacity-50"
+              >
+                没收到邮件？
+              </button>
+            </div>
           )}
         </motion.div>
       </div>

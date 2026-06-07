@@ -49,6 +49,14 @@ function mapPublicProfile(row: ProfileRow): PublicUser {
   return mapProfile(row)
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message
+  }
+  return "未知错误"
+}
+
 async function getProfiles(ids: string[]) {
   const unique = [...new Set(ids)].filter(Boolean)
   if (unique.length === 0) return new Map<string, ProfileRow>()
@@ -69,7 +77,7 @@ export async function getCurrentBackendUser(): Promise<User | null> {
 async function getOrCreateProfileForAuthUser(authUser: SupabaseAuthUser): Promise<User> {
   const supabase = requireSupabaseBrowserClient()
   const { data, error } = await supabase.from("profiles").select("*").eq("id", authUser.id).maybeSingle()
-  if (error) throw error
+  if (error) throw new Error(`读取用户资料失败：${getErrorMessage(error)}`)
   if (data) return mapProfile(data as ProfileRow)
 
   const profile: ProfileRow = {
@@ -83,7 +91,13 @@ async function getOrCreateProfileForAuthUser(authUser: SupabaseAuthUser): Promis
     .upsert(profile, { onConflict: "id" })
     .select("*")
     .single()
-  if (insertError) throw insertError
+  if (insertError) {
+    const message = getErrorMessage(insertError)
+    if (message.toLowerCase().includes("duplicate key")) {
+      throw new Error("登录成功，但用户资料创建失败：这个邮箱在资料表里已有残留记录，请先清理 Supabase profiles 表里的旧记录")
+    }
+    throw new Error(`创建用户资料失败：${message}`)
+  }
   return mapProfile(inserted as ProfileRow)
 }
 

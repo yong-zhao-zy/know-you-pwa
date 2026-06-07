@@ -37,6 +37,13 @@ export interface ChatBackground {
   hope: string
 }
 
+export interface ChatBackgroundEntry {
+  userId: string
+  background: ChatBackground
+  createdAt: number
+  updatedAt: number
+}
+
 export type Sender = "A" | "B"
 
 export interface GuessOption {

@@ -1,6 +1,18 @@
 import { requireSupabaseBrowserClient } from "@/lib/supabase/client"
 import { generateGuessOptions, generateInterpretation, generateReceiverHint, genId, pickColor } from "@/lib/storage"
-import type { Friend, FriendRequest, GuessOption, Message, PasswordResetInboxItem, PublicUser, Sender, User } from "@/lib/types"
+import type {
+  ChatBackground,
+  ChatBackgroundEntry,
+  EmotionState,
+  Friend,
+  FriendRequest,
+  GuessOption,
+  Message,
+  PasswordResetInboxItem,
+  PublicUser,
+  Sender,
+  User,
+} from "@/lib/types"
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js"
 
 type ProfileRow = {
@@ -34,6 +46,16 @@ type InterpretationRow = {
   confirmed: boolean
   understood: boolean
   expanded: boolean
+}
+
+type ChatBackgroundRow = {
+  room_id: string
+  user_id: string
+  topic: string
+  emotion: EmotionState
+  hope: string
+  created_at: string
+  updated_at: string
 }
 
 function mapProfile(row: ProfileRow): User {
@@ -343,6 +365,50 @@ export async function getOrCreateRoom(currentUserId: string, friendId: string): 
     .single()
   if (error) throw error
   return data.id as string
+}
+
+function mapChatBackground(row: ChatBackgroundRow): ChatBackgroundEntry {
+  return {
+    userId: row.user_id,
+    background: {
+      topic: row.topic,
+      emotion: row.emotion,
+      hope: row.hope,
+    },
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+  }
+}
+
+export async function getChatBackgroundsBackend(roomId: string): Promise<ChatBackgroundEntry[]> {
+  const supabase = requireSupabaseBrowserClient()
+  const { data, error } = await supabase.from("chat_backgrounds").select("*").eq("room_id", roomId)
+  if (error) throw error
+  return ((data ?? []) as ChatBackgroundRow[]).map(mapChatBackground)
+}
+
+export async function saveChatBackgroundBackend(roomId: string, background: ChatBackground): Promise<ChatBackgroundEntry> {
+  const supabase = requireSupabaseBrowserClient()
+  const current = await getCurrentBackendUser()
+  if (!current) throw new Error("请先登录")
+
+  const { data, error } = await supabase
+    .from("chat_backgrounds")
+    .upsert(
+      {
+        room_id: roomId,
+        user_id: current.id,
+        topic: background.topic.trim(),
+        emotion: background.emotion,
+        hope: background.hope.trim(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "room_id,user_id" },
+    )
+    .select("*")
+    .single()
+  if (error) throw error
+  return mapChatBackground(data as ChatBackgroundRow)
 }
 
 export async function getMessagesBackend(roomId: string, currentUserId: string): Promise<Message[]> {

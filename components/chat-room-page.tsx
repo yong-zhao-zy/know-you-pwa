@@ -16,11 +16,21 @@ import {
 } from "@/lib/storage"
 import {
   createMessageBackend,
+  getChatBackgroundsBackend,
   getMessagesBackend,
   getOrCreateRoom,
+  saveChatBackgroundBackend,
   updateInterpretationBackend,
 } from "@/lib/backend"
-import type { User, Friend, Message, Sender, ChatBackground } from "@/lib/types"
+import type { User, Friend, Message, Sender, ChatBackground, ChatBackgroundEntry, EmotionState } from "@/lib/types"
+
+const EMOTION_LABELS: Record<EmotionState, string> = {
+  calm: "平静",
+  anxious: "有些焦虑",
+  wronged: "比较委屈",
+  angry: "有些愤怒",
+  other: "其他",
+}
 
 export function ChatRoomPage({
   currentUser,
@@ -33,6 +43,7 @@ export function ChatRoomPage({
 }) {
   const [showBgModal, setShowBgModal] = useState(true)
   const [background, setBackground] = useState<ChatBackground | null>(null)
+  const [backgroundEntries, setBackgroundEntries] = useState<ChatBackgroundEntry[]>([])
   const [viewer, setViewer] = useState<Sender>("A")
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [input, setInput] = useState("")
@@ -51,14 +62,35 @@ export function ChatRoomPage({
       .then(async (nextRoomId) => {
         if (cancelled) return
         setRoomId(nextRoomId)
-        const nextMessages = await getMessagesBackend(nextRoomId, currentUser.id)
-        if (!cancelled) setMessages(nextMessages)
+        const [nextMessages, nextBackgrounds] = await Promise.all([
+          getMessagesBackend(nextRoomId, currentUser.id),
+          getChatBackgroundsBackend(nextRoomId),
+        ])
+        if (!cancelled) {
+          setMessages(nextMessages)
+          setBackgroundEntries(nextBackgrounds)
+          const ownBackground = nextBackgrounds.find((entry) => entry.userId === currentUser.id)
+          if (ownBackground) {
+            setBackground(ownBackground.background)
+            setShowBgModal(false)
+          }
+        }
       })
       .catch(() => setMessages([]))
     return () => {
       cancelled = true
     }
   }, [currentUser.id, friend.id])
+
+  useEffect(() => {
+    if (!roomId) return
+    const timer = window.setInterval(() => {
+      getChatBackgroundsBackend(roomId)
+        .then(setBackgroundEntries)
+        .catch(() => {})
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [roomId])
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -114,6 +146,34 @@ export function ChatRoomPage({
     }, 3000)
   }
 
+  async function handleBackgroundSubmit(bg: ChatBackground) {
+    setBackground(bg)
+    setShowBgModal(false)
+    if (!roomId) return
+    try {
+      const saved = await saveChatBackgroundBackend(roomId, bg)
+      setBackgroundEntries((entries) => {
+        const withoutOwn = entries.filter((entry) => entry.userId !== currentUser.id)
+        return [...withoutOwn, saved]
+      })
+    } catch {
+      setBackgroundEntries((entries) => {
+        const ownEntry: ChatBackgroundEntry = {
+          userId: currentUser.id,
+          background: bg,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }
+        const withoutOwn = entries.filter((entry) => entry.userId !== currentUser.id)
+        return [...withoutOwn, ownEntry]
+      })
+    }
+  }
+
+  function getBackgroundFor(userId: string) {
+    return backgroundEntries.find((entry) => entry.userId === userId)?.background ?? null
+  }
+
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
       {/* top bar */}
@@ -166,9 +226,22 @@ export function ChatRoomPage({
       {/* system tip */}
       {background && (
         <div className="px-4 pt-3">
-          <p className="mx-auto w-fit rounded-full bg-accent px-3 py-1.5 text-center text-[11px] text-[#7e6bb0]">
-            翻译小天使已了解背景，随时为你们服务 🧚
-          </p>
+          <div className="rounded-2xl bg-muted/70 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-foreground">本次事件背景</p>
+              <span className="text-[11px] text-text-secondary">翻译小天使已了解 🧚</span>
+            </div>
+            <div className="grid gap-2">
+              <BackgroundSummary
+                label={`${currentUser.nickname}（你）`}
+                background={getBackgroundFor(currentUser.id)}
+              />
+              <BackgroundSummary
+                label={friend.nickname}
+                background={getBackgroundFor(friend.id)}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -238,8 +311,7 @@ export function ChatRoomPage({
         {showBgModal && (
           <BackgroundModal
             onSubmit={(bg) => {
-              setBackground(bg)
-              setShowBgModal(false)
+              handleBackgroundSubmit(bg)
             }}
             onClose={onBack}
           />
@@ -255,6 +327,36 @@ export function ChatRoomPage({
         countA={countA}
         countB={countB}
       />
+    </div>
+  )
+}
+
+function BackgroundSummary({ label, background }: { label: string; background: ChatBackground | null }) {
+  if (!background) {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-background/60 px-3 py-2">
+        <p className="text-xs font-medium text-foreground">{label}</p>
+        <p className="mt-1 text-[11px] text-text-secondary">等待对方填写背景</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl bg-background/75 px-3 py-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="truncate text-xs font-medium text-foreground">{label}</p>
+        <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">
+          {EMOTION_LABELS[background.emotion]}
+        </span>
+      </div>
+      <p className="text-[11px] leading-relaxed text-text-secondary">
+        <span className="text-foreground/80">事情：</span>
+        {background.topic.trim() || "未填写"}
+      </p>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-text-secondary">
+        <span className="text-foreground/80">希望理解：</span>
+        {background.hope.trim() || "未填写"}
+      </p>
     </div>
   )
 }

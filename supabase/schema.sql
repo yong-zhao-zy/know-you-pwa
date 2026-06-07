@@ -47,6 +47,17 @@ create table if not exists public.messages (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.chat_backgrounds (
+  room_id uuid not null references public.chat_rooms(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  topic text not null default '',
+  emotion text not null default 'other',
+  hope text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (room_id, user_id)
+);
+
 create table if not exists public.ai_interpretations (
   id uuid primary key default gen_random_uuid(),
   message_id uuid not null unique references public.messages(id) on delete cascade,
@@ -126,6 +137,7 @@ alter table public.profiles enable row level security;
 alter table public.friend_requests enable row level security;
 alter table public.friendships enable row level security;
 alter table public.chat_rooms enable row level security;
+alter table public.chat_backgrounds enable row level security;
 alter table public.messages enable row level security;
 alter table public.ai_interpretations enable row level security;
 alter table public.password_reset_requests enable row level security;
@@ -165,6 +177,33 @@ for select to authenticated using (auth.uid() = user_a or auth.uid() = user_b);
 drop policy if exists "rooms_insert_participant" on public.chat_rooms;
 create policy "rooms_insert_participant" on public.chat_rooms
 for insert to authenticated with check (auth.uid() = user_a or auth.uid() = user_b);
+
+drop policy if exists "backgrounds_select_participants" on public.chat_backgrounds;
+create policy "backgrounds_select_participants" on public.chat_backgrounds
+for select to authenticated using (
+  exists (
+    select 1 from public.chat_rooms r
+    where r.id = room_id and (r.user_a = auth.uid() or r.user_b = auth.uid())
+  )
+);
+
+drop policy if exists "backgrounds_upsert_own" on public.chat_backgrounds;
+create policy "backgrounds_upsert_own" on public.chat_backgrounds
+for insert to authenticated with check (
+  auth.uid() = user_id and exists (
+    select 1 from public.chat_rooms r
+    where r.id = room_id and (r.user_a = auth.uid() or r.user_b = auth.uid())
+  )
+);
+
+drop policy if exists "backgrounds_update_own" on public.chat_backgrounds;
+create policy "backgrounds_update_own" on public.chat_backgrounds
+for update to authenticated using (auth.uid() = user_id) with check (
+  auth.uid() = user_id and exists (
+    select 1 from public.chat_rooms r
+    where r.id = room_id and (r.user_a = auth.uid() or r.user_b = auth.uid())
+  )
+);
 
 drop policy if exists "messages_select_participants" on public.messages;
 create policy "messages_select_participants" on public.messages
@@ -223,6 +262,7 @@ grant select, insert, update on public.profiles to authenticated;
 grant select, insert, update on public.friend_requests to authenticated;
 grant select, insert on public.friendships to authenticated;
 grant select, insert on public.chat_rooms to authenticated;
+grant select, insert, update on public.chat_backgrounds to authenticated;
 grant select, insert on public.messages to authenticated;
 grant select, insert, update on public.ai_interpretations to authenticated;
 grant select on public.password_reset_requests to authenticated;
@@ -230,6 +270,7 @@ grant all on public.profiles to service_role;
 grant all on public.friend_requests to service_role;
 grant all on public.friendships to service_role;
 grant all on public.chat_rooms to service_role;
+grant all on public.chat_backgrounds to service_role;
 grant all on public.messages to service_role;
 grant all on public.ai_interpretations to service_role;
 grant all on public.password_reset_requests to service_role;

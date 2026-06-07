@@ -37,8 +37,8 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
     try {
       const user = await signInBackend(email, password)
       onAuthed(user)
-    } catch {
-      setError("邮箱或密码不正确")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "登录失败，请稍后再试")
     } finally {
       setVerifying(false)
     }
@@ -158,7 +158,7 @@ export function AuthPage({ onAuthed }: { onAuthed: (user: User) => void }) {
             full
             className="mt-2"
             disabled={verifying}
-            onClick={isRegisterLike ? handleRegister : handleLogin}
+            onClick={mode === "login" ? handleLogin : handleRegister}
           >
             {verifying
               ? "处理中…"

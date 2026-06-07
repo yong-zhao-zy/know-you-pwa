@@ -5,7 +5,7 @@ import { ToastProvider } from "@/components/toast"
 import { AuthPage } from "@/components/auth-page"
 import { FriendHomePage } from "@/components/friend-home-page"
 import { ChatRoomPage } from "@/components/chat-room-page"
-import { getCurrentBackendUser, signOutBackend } from "@/lib/backend"
+import { completeAuthRedirect, getCurrentBackendUser, signOutBackend } from "@/lib/backend"
 import type { User, Friend } from "@/lib/types"
 
 type Screen = "auth" | "home" | "chat"
@@ -17,8 +17,9 @@ export default function Page() {
   const [activeFriend, setActiveFriend] = useState<Friend | null>(null)
 
   useEffect(() => {
-    getCurrentBackendUser()
-      .then((current) => {
+    completeAuthRedirect()
+      .then(async (result) => {
+        const current = result.user ?? (await getCurrentBackendUser())
         if (current) {
           setUser(current)
           setScreen("home")

@@ -81,10 +81,60 @@ export async function getCurrentBackendUser(): Promise<User | null> {
   return mapProfile(inserted as ProfileRow)
 }
 
+function readAuthParamsFromLocation() {
+  if (typeof window === "undefined") return new URLSearchParams()
+  const params = new URLSearchParams(window.location.search)
+  if (window.location.hash) {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""))
+    hashParams.forEach((value, key) => params.set(key, value))
+  }
+  return params
+}
+
+export async function completeAuthRedirect(): Promise<{ user: User | null; error: string | null }> {
+  if (typeof window === "undefined") return { user: null, error: null }
+
+  const params = readAuthParamsFromLocation()
+  const description = params.get("error_description")
+  const errorCode = params.get("error_code")
+  if (description || errorCode) {
+    window.history.replaceState({}, document.title, window.location.pathname)
+    return {
+      user: null,
+      error:
+        errorCode === "otp_expired"
+          ? "邮箱验证链接已过期，请重新注册或重新发送验证邮件"
+          : description?.replaceAll("+", " ") || "邮箱验证失败，请重新尝试",
+    }
+  }
+
+  const code = params.get("code")
+  if (!code) return { user: null, error: null }
+
+  const supabase = requireSupabaseBrowserClient()
+  const { error } = await supabase.auth.exchangeCodeForSession(code)
+  window.history.replaceState({}, document.title, window.location.pathname)
+  if (error) {
+    return { user: null, error: translateAuthError(error.message) }
+  }
+
+  return { user: await getCurrentBackendUser(), error: null }
+}
+
+export function translateAuthError(message: string) {
+  const lower = message.toLowerCase()
+  if (lower.includes("invalid login credentials")) return "邮箱或密码不正确"
+  if (lower.includes("email not confirmed")) return "邮箱还未验证，请先点击邮箱里的确认链接"
+  if (lower.includes("signup disabled")) return "注册暂未开启，请检查 Supabase 邮箱登录设置"
+  if (lower.includes("rate limit")) return "操作太频繁，请稍后再试"
+  if (lower.includes("supabase 环境变量")) return message
+  return message || "操作失败，请稍后再试"
+}
+
 export async function signInBackend(email: string, password: string): Promise<User> {
   const supabase = requireSupabaseBrowserClient()
   const { error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) throw error
+  if (error) throw new Error(translateAuthError(error.message))
   const user = await getCurrentBackendUser()
   if (!user) throw new Error("登录失败，请稍后重试")
   return user
@@ -103,7 +153,7 @@ export async function signUpBackend(email: string, password: string, nickname: s
       },
     },
   })
-  if (error) throw error
+  if (error) throw new Error(translateAuthError(error.message))
 }
 
 export async function sendPasswordResetEmail(email: string) {
@@ -111,7 +161,7 @@ export async function sendPasswordResetEmail(email: string) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: typeof window === "undefined" ? undefined : window.location.origin,
   })
-  if (error) throw error
+  if (error) throw new Error(translateAuthError(error.message))
 }
 
 export async function signOutBackend() {

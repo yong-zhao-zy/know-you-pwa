@@ -126,6 +126,7 @@ export function translateAuthError(message: string) {
   if (lower.includes("invalid login credentials")) return "邮箱或密码不正确"
   if (lower.includes("email not confirmed")) return "邮箱还未验证，请先点击邮箱里的确认链接"
   if (lower.includes("signup disabled")) return "注册暂未开启，请检查 Supabase 邮箱登录设置"
+  if (lower.includes("email rate limit")) return "验证邮件发送太频繁，请稍后再试，或先换一个邮箱测试"
   if (lower.includes("rate limit")) return "操作太频繁，请稍后再试"
   if (lower.includes("supabase 环境变量")) return message
   return message || "操作失败，请稍后再试"

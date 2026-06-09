@@ -29,6 +29,12 @@ export interface PasswordResetInboxItem {
   account: PublicUser | null
 }
 
+export interface SentFriendRequest {
+  id: string
+  status: "pending" | "accepted" | "rejected"
+  toUser: PublicUser
+}
+
 export type EmotionState = "calm" | "anxious" | "wronged" | "angry" | "other"
 
 export interface ChatBackground {
@@ -42,6 +48,14 @@ export interface ChatBackgroundEntry {
   background: ChatBackground
   createdAt: number
   updatedAt: number
+}
+
+export interface ChatThread {
+  id: string
+  title: string
+  friend: Friend
+  updatedAt: number
+  lastMessage?: string
 }
 
 export type Sender = "A" | "B"

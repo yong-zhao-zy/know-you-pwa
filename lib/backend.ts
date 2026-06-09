@@ -10,7 +10,9 @@ import type {
   Message,
   PasswordResetInboxItem,
   PublicUser,
+  SentFriendRequest,
   Sender,
+  ChatThread,
   User,
 } from "@/lib/types"
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js"
@@ -35,6 +37,16 @@ export type MessageRow = {
   sender_id: string
   content: string
   created_at: string
+}
+
+type ChatRoomRow = {
+  id: string
+  user_a: string
+  user_b: string
+  room_key: string
+  title?: string | null
+  created_at: string
+  updated_at?: string | null
 }
 
 export type InterpretationRow = {
@@ -368,6 +380,25 @@ export async function getFriendRequestsBackend(currentUserId: string): Promise<F
   }))
 }
 
+export async function getSentFriendRequestsBackend(currentUserId: string): Promise<SentFriendRequest[]> {
+  const supabase = requireSupabaseBrowserClient()
+  const { data, error } = await supabase
+    .from("friend_requests")
+    .select("*")
+    .eq("from_user", currentUserId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+  if (error) throw error
+
+  const rows = (data ?? []) as FriendRequestRow[]
+  const profiles = await getProfiles(rows.map((request) => request.to_user))
+  return rows.map((request) => ({
+    id: request.id,
+    status: request.status,
+    toUser: mapPublicProfile(profiles.get(request.to_user)!),
+  }))
+}
+
 export async function respondFriendRequestBackend(id: string, status: "accepted" | "rejected") {
   const supabase = requireSupabaseBrowserClient()
   const { error } = await supabase.from("friend_requests").update({ status }).eq("id", id)
@@ -406,6 +437,79 @@ export async function getOrCreateRoom(currentUserId: string, friendId: string): 
     .single()
   if (error) throw error
   return data.id as string
+}
+
+export async function createChatRoomBackend(currentUserId: string, friendId: string): Promise<string> {
+  const supabase = requireSupabaseBrowserClient()
+  const { data, error } = await supabase
+    .from("chat_rooms")
+    .insert({
+      user_a: currentUserId,
+      user_b: friendId,
+      room_key: `${[currentUserId, friendId].sort().join(":")}:${Date.now()}`,
+    })
+    .select("id")
+    .single()
+  if (error) throw error
+  return data.id as string
+}
+
+export async function renameChatRoomBackend(roomId: string, title: string) {
+  const supabase = requireSupabaseBrowserClient()
+  const { error } = await supabase
+    .from("chat_rooms")
+    .update({ title: title.trim() })
+    .eq("id", roomId)
+  if (error) throw error
+}
+
+export async function getChatThreadsBackend(currentUserId: string): Promise<ChatThread[]> {
+  const supabase = requireSupabaseBrowserClient()
+  const { data: roomData, error: roomError } = await supabase
+    .from("chat_rooms")
+    .select("*")
+    .or(`user_a.eq.${currentUserId},user_b.eq.${currentUserId}`)
+    .order("created_at", { ascending: false })
+  if (roomError) throw roomError
+
+  const rooms = (roomData ?? []) as ChatRoomRow[]
+  if (rooms.length === 0) return []
+
+  const friendIds = rooms.map((room) => (room.user_a === currentUserId ? room.user_b : room.user_a))
+  const profiles = await getProfiles(friendIds)
+
+  const roomIds = rooms.map((room) => room.id)
+  const [{ data: backgroundData }, { data: messageData }] = await Promise.all([
+    supabase.from("chat_backgrounds").select("*").in("room_id", roomIds).eq("user_id", currentUserId),
+    supabase.from("messages").select("*").in("room_id", roomIds).order("created_at", { ascending: false }),
+  ])
+
+  const backgrounds = new Map(
+    ((backgroundData ?? []) as ChatBackgroundRow[]).map((entry) => [entry.room_id, entry]),
+  )
+  const lastMessages = new Map<string, MessageRow>()
+  for (const message of (messageData ?? []) as MessageRow[]) {
+    if (!lastMessages.has(message.room_id)) lastMessages.set(message.room_id, message)
+  }
+
+  const threads: ChatThread[] = []
+  for (const room of rooms) {
+    const friendId = room.user_a === currentUserId ? room.user_b : room.user_a
+    const friendProfile = profiles.get(friendId)
+    if (!friendProfile) continue
+    const background = backgrounds.get(room.id)
+    const fallbackTitle = background?.topic?.trim() || "新的沟通事件"
+    const lastMessage = lastMessages.get(room.id)
+    threads.push({
+      id: room.id,
+      title: room.title?.trim() || fallbackTitle,
+      friend: mapPublicProfile(friendProfile),
+      updatedAt: new Date(lastMessage?.created_at ?? room.updated_at ?? room.created_at).getTime(),
+      lastMessage: lastMessage?.content,
+    })
+  }
+
+  return threads.sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 function mapChatBackground(row: ChatBackgroundRow): ChatBackgroundEntry {

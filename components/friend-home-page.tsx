@@ -2,7 +2,20 @@
 
 import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Search, ChevronDown, LogOut, Settings, MessageCircle, UserPlus, Sparkles, KeyRound } from "lucide-react"
+import {
+  Search,
+  ChevronDown,
+  LogOut,
+  Settings,
+  MessageCircle,
+  UserPlus,
+  Sparkles,
+  KeyRound,
+  MessageSquare,
+  UserRound,
+  Plus,
+  Pencil,
+} from "lucide-react"
 import { Avatar } from "@/components/avatar"
 import { AppButton } from "@/components/app-button"
 import { TextField } from "@/components/text-field"
@@ -10,12 +23,24 @@ import { useToast } from "@/components/toast"
 import {
   getFriendRequestsBackend,
   getFriendsBackend,
+  getChatThreadsBackend,
   getPasswordResetInbox,
+  getSentFriendRequestsBackend,
+  createChatRoomBackend,
+  renameChatRoomBackend,
   respondFriendRequestBackend,
   searchProfileByEmail,
   sendFriendRequestBackend,
 } from "@/lib/backend"
-import type { User, Friend, FriendRequest, PasswordResetInboxItem, PublicUser } from "@/lib/types"
+import type {
+  User,
+  Friend,
+  FriendRequest,
+  PasswordResetInboxItem,
+  PublicUser,
+  ChatThread,
+  SentFriendRequest,
+} from "@/lib/types"
 
 export function FriendHomePage({
   currentUser,
@@ -24,17 +49,20 @@ export function FriendHomePage({
 }: {
   currentUser: User
   onLogout: () => void
-  onEnterChat: (friend: Friend) => void
+  onEnterChat: (friend: Friend, roomId?: string) => void
 }) {
   const toast = useToast()
+  const [tab, setTab] = useState<"chats" | "mine">("chats")
   const [menuOpen, setMenuOpen] = useState(false)
   const [friends, setFriends] = useState<Friend[]>([])
+  const [threads, setThreads] = useState<ChatThread[]>([])
   const [searchEmail, setSearchEmail] = useState("")
   const [searchResult, setSearchResult] = useState<PublicUser | null>(null)
   const [requestSent, setRequestSent] = useState(false)
   const [loading, setLoading] = useState(true)
   const menuRef = useRef<HTMLDivElement>(null)
   const [requests, setRequests] = useState<FriendRequest[]>([])
+  const [sentRequests, setSentRequests] = useState<SentFriendRequest[]>([])
   const [resetInbox, setResetInbox] = useState<PasswordResetInboxItem[]>([])
 
   useEffect(() => {
@@ -45,13 +73,17 @@ export function FriendHomePage({
   async function refresh() {
     setLoading(true)
     try {
-      const [nextFriends, nextRequests] = await Promise.all([
+      const [nextFriends, nextRequests, nextSentRequests, nextThreads] = await Promise.all([
         getFriendsBackend(currentUser.id),
         getFriendRequestsBackend(currentUser.id),
+        getSentFriendRequestsBackend(currentUser.id),
+        getChatThreadsBackend(currentUser.id),
       ])
       const nextResetInbox = await getPasswordResetInbox()
       setFriends(nextFriends)
       setRequests(nextRequests)
+      setSentRequests(nextSentRequests)
+      setThreads(nextThreads)
       setResetInbox(nextResetInbox)
     } catch (err) {
       toast(err instanceof Error ? err.message : "加载好友失败")
@@ -89,6 +121,26 @@ export function FriendHomePage({
   async function handleRejectRequest(id: string) {
     await respondFriendRequestBackend(id, "rejected")
     setRequests((rs) => rs.map((r) => (r.id === id ? { ...r, status: "rejected" as const } : r)))
+  }
+
+  async function handleCreateChat(friend: Friend) {
+    try {
+      const roomId = await createChatRoomBackend(currentUser.id, friend.id)
+      onEnterChat(friend, roomId)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "创建聊天失败")
+    }
+  }
+
+  async function handleRenameThread(thread: ChatThread) {
+    const nextTitle = window.prompt("聊天名称", thread.title)
+    if (!nextTitle || nextTitle.trim() === thread.title) return
+    try {
+      await renameChatRoomBackend(thread.id, nextTitle)
+      setThreads((items) => items.map((item) => (item.id === thread.id ? { ...item, title: nextTitle.trim() } : item)))
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "重命名失败")
+    }
   }
 
   return (
@@ -139,8 +191,106 @@ export function FriendHomePage({
         </div>
       </header>
 
+      <nav className="grid grid-cols-2 border-b border-border bg-background px-5 py-2">
+        <button
+          onClick={() => setTab("chats")}
+          className={`flex items-center justify-center gap-1.5 rounded-full py-2 text-sm transition-colors ${
+            tab === "chats" ? "bg-primary text-primary-foreground" : "text-text-secondary hover:bg-muted"
+          }`}
+        >
+          <MessageSquare className="h-4 w-4" />
+          聊天
+        </button>
+        <button
+          onClick={() => setTab("mine")}
+          className={`flex items-center justify-center gap-1.5 rounded-full py-2 text-sm transition-colors ${
+            tab === "mine" ? "bg-primary text-primary-foreground" : "text-text-secondary hover:bg-muted"
+          }`}
+        >
+          <UserRound className="h-4 w-4" />
+          我的
+        </button>
+      </nav>
+
       {/* content */}
       <div className="no-scrollbar flex-1 overflow-y-auto px-5 py-5">
+        {tab === "chats" && (
+          <>
+            <Section title="新建事件聊天" icon={<Plus className="h-4 w-4" />}>
+              {friends.length === 0 && <Empty text="添加好友后即可新建事件聊天" />}
+              <div className="flex flex-col gap-2">
+                {friends.map((f) => (
+                  <div key={f.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+                    <Avatar nickname={f.nickname} color={f.avatarColor} size={42} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{f.nickname}</p>
+                      <p className="truncate text-xs text-text-secondary">{f.email}</p>
+                    </div>
+                    <AppButton variant="soft" className="h-9 shrink-0 px-3 text-xs" onClick={() => handleCreateChat(f)}>
+                      新事件
+                    </AppButton>
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="事件聊天" icon={<MessageCircle className="h-4 w-4" />}>
+              {threads.length === 0 && <Empty text="暂无事件聊天" />}
+              <div className="flex flex-col gap-2">
+                {threads.map((thread) => (
+                  <div
+                    key={thread.id}
+                    onClick={() => onEnterChat(thread.friend, thread.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        onEnterChat(thread.friend, thread.id)
+                      }
+                    }}
+                    className="w-full rounded-xl border border-border bg-card p-3 text-left transition-colors hover:bg-muted/40"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Avatar nickname={thread.friend.nickname} color={thread.friend.avatarColor} size={42} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-foreground">{thread.title}</p>
+                          <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">
+                            {thread.friend.nickname}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-text-secondary">
+                          {thread.lastMessage || "还没有消息"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleRenameThread(thread)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            handleRenameThread(thread)
+                          }
+                        }}
+                        className="rounded-full p-1.5 text-text-secondary hover:bg-muted hover:text-foreground"
+                        aria-label="重命名聊天"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          </>
+        )}
+
+        {tab === "mine" && (
+          <>
         {/* add friend */}
         <Section title="添加好友" icon={<UserPlus className="h-4 w-4" />}>
           <div className="flex gap-2">
@@ -214,8 +364,20 @@ export function FriendHomePage({
 
         {/* friend requests */}
         <Section title="好友申请" icon={<MessageCircle className="h-4 w-4" />}>
-          {requests.length === 0 && <Empty text="暂无好友申请" />}
+          {requests.length === 0 && sentRequests.length === 0 && <Empty text="暂无好友申请" />}
           <div className="flex flex-col gap-2">
+            {sentRequests.map((req) => (
+              <div key={req.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+                <Avatar nickname={req.toUser.nickname} color={req.toUser.avatarColor} size={42} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{req.toUser.nickname}</p>
+                  <p className="truncate text-xs text-text-secondary">{req.toUser.email}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs text-text-secondary">
+                  待对方同意
+                </span>
+              </div>
+            ))}
             {requests.map((req) => (
               <div key={req.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
                 <Avatar nickname={req.fromUser.nickname} color={req.fromUser.avatarColor} size={42} />
@@ -255,13 +417,15 @@ export function FriendHomePage({
                   <p className="truncate text-sm font-medium text-foreground">{f.nickname}</p>
                   <p className="truncate text-xs text-text-secondary">{f.email}</p>
                 </div>
-                <AppButton variant="soft" className="h-9 shrink-0 px-3 text-xs" onClick={() => onEnterChat(f)}>
-                  进入聊天室
+                <AppButton variant="soft" className="h-9 shrink-0 px-3 text-xs" onClick={() => handleCreateChat(f)}>
+                  新事件
                 </AppButton>
               </div>
             ))}
           </div>
         </Section>
+          </>
+        )}
       </div>
     </div>
   )

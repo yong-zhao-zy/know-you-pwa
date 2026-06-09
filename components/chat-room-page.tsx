@@ -21,6 +21,7 @@ import {
   getMessagesBackend,
   getOrCreateRoom,
   mapMessageWithInterpretation,
+  renameChatRoomBackend,
   saveChatBackgroundBackend,
   updateInterpretationBackend,
 } from "@/lib/backend"
@@ -40,10 +41,12 @@ export function ChatRoomPage({
   currentUser,
   friend,
   onBack,
+  initialRoomId,
 }: {
   currentUser: User
   friend: Friend
   onBack: () => void
+  initialRoomId?: string | null
 }) {
   const [showBgModal, setShowBgModal] = useState(true)
   const [background, setBackground] = useState<ChatBackground | null>(null)
@@ -89,7 +92,8 @@ export function ChatRoomPage({
 
   useEffect(() => {
     let cancelled = false
-    getOrCreateRoom(currentUser.id, friend.id)
+    const roomPromise = initialRoomId ? Promise.resolve(initialRoomId) : getOrCreateRoom(currentUser.id, friend.id)
+    roomPromise
       .then(async (nextRoomId) => {
         if (cancelled) return
         setRoomId(nextRoomId)
@@ -111,7 +115,7 @@ export function ChatRoomPage({
     return () => {
       cancelled = true
     }
-  }, [currentUser.id, friend.id])
+  }, [currentUser.id, friend.id, initialRoomId])
 
   useEffect(() => {
     if (!roomId) return
@@ -256,6 +260,9 @@ export function ChatRoomPage({
     if (!roomId) return
     try {
       const saved = await saveChatBackgroundBackend(roomId, bg)
+      if (bg.topic.trim()) {
+        renameChatRoomBackend(roomId, bg.topic.trim()).catch(() => {})
+      }
       setBackgroundEntries((entries) => {
         const withoutOwn = entries.filter((entry) => entry.userId !== currentUser.id)
         return [...withoutOwn, saved]

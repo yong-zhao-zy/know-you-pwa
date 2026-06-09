@@ -15,6 +15,7 @@ export default function Page() {
   const [screen, setScreen] = useState<Screen>("auth")
   const [user, setUser] = useState<User | null>(null)
   const [activeFriend, setActiveFriend] = useState<Friend | null>(null)
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null)
   const [authError, setAuthError] = useState("")
 
   useEffect(() => {
@@ -63,15 +64,21 @@ export default function Page() {
                 setScreen("auth")
               })
             }}
-            onEnterChat={(f) => {
+            onEnterChat={(f, roomId) => {
               setActiveFriend(f)
+              setActiveRoomId(roomId ?? null)
               setScreen("chat")
             }}
           />
         )}
 
         {screen === "chat" && user && activeFriend && (
-          <ChatRoomPage currentUser={user} friend={activeFriend} onBack={() => setScreen("home")} />
+          <ChatRoomPage
+            currentUser={user}
+            friend={activeFriend}
+            initialRoomId={activeRoomId}
+            onBack={() => setScreen("home")}
+          />
         )}
       </main>
     </ToastProvider>

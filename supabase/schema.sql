@@ -35,6 +35,7 @@ create table if not exists public.chat_rooms (
   user_a uuid not null references public.profiles(id) on delete cascade,
   user_b uuid not null references public.profiles(id) on delete cascade,
   room_key text not null unique,
+  title text,
   created_at timestamptz not null default now(),
   check (user_a <> user_b)
 );
@@ -178,6 +179,11 @@ drop policy if exists "rooms_insert_participant" on public.chat_rooms;
 create policy "rooms_insert_participant" on public.chat_rooms
 for insert to authenticated with check (auth.uid() = user_a or auth.uid() = user_b);
 
+drop policy if exists "rooms_update_participants" on public.chat_rooms;
+create policy "rooms_update_participants" on public.chat_rooms
+for update to authenticated using (auth.uid() = user_a or auth.uid() = user_b)
+with check (auth.uid() = user_a or auth.uid() = user_b);
+
 drop policy if exists "backgrounds_select_participants" on public.chat_backgrounds;
 create policy "backgrounds_select_participants" on public.chat_backgrounds
 for select to authenticated using (
@@ -261,7 +267,7 @@ grant usage on schema public to anon, authenticated, service_role;
 grant select, insert, update on public.profiles to authenticated;
 grant select, insert, update on public.friend_requests to authenticated;
 grant select, insert on public.friendships to authenticated;
-grant select, insert on public.chat_rooms to authenticated;
+grant select, insert, update on public.chat_rooms to authenticated;
 grant select, insert, update on public.chat_backgrounds to authenticated;
 grant select, insert on public.messages to authenticated;
 grant select, insert, update on public.ai_interpretations to authenticated;

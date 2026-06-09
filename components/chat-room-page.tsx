@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence } from "framer-motion"
-import { ChevronLeft, Send, Mic, BarChart3 } from "lucide-react"
+import { ChevronLeft, Send, Mic, BarChart3, FileText, X } from "lucide-react"
 import { Avatar } from "@/components/avatar"
 import { MessageBubble } from "@/components/message-bubble"
 import { AiInterpretationCard } from "@/components/ai-interpretation-card"
@@ -50,6 +50,7 @@ export function ChatRoomPage({
   const [backgroundEntries, setBackgroundEntries] = useState<ChatBackgroundEntry[]>([])
   const [viewer, setViewer] = useState<Sender>("A")
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [backgroundOpen, setBackgroundOpen] = useState(false)
   const [input, setInput] = useState("")
   const [recording, setRecording] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
@@ -286,13 +287,22 @@ export function ChatRoomPage({
             <ChevronLeft className="h-5 w-5" />
           </button>
           <h1 className="text-[15px] font-semibold text-foreground">你与 {friend.nickname} 的对话间</h1>
-          <button
-            onClick={() => setDrawerOpen(true)}
-            className="rounded-full p-1.5 text-foreground transition-colors hover:bg-muted"
-            aria-label="互动洞察"
-          >
-            <BarChart3 className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setBackgroundOpen(true)}
+              className="rounded-full p-1.5 text-foreground transition-colors hover:bg-muted"
+              aria-label="本次事件背景"
+            >
+              <FileText className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="rounded-full p-1.5 text-foreground transition-colors hover:bg-muted"
+              aria-label="互动洞察"
+            >
+              <BarChart3 className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         {/* participants bar */}
@@ -325,28 +335,6 @@ export function ChatRoomPage({
           ))}
         </div>
       </header>
-
-      {/* system tip */}
-      {background && (
-        <div className="px-4 pt-3">
-          <div className="rounded-2xl bg-muted/70 p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-xs font-medium text-foreground">本次事件背景</p>
-              <span className="text-[11px] text-text-secondary">翻译小天使已了解 🧚</span>
-            </div>
-            <div className="grid gap-2">
-              <BackgroundSummary
-                label={`${currentUser.nickname}（你）`}
-                background={getBackgroundFor(currentUser.id)}
-              />
-              <BackgroundSummary
-                label={friend.nickname}
-                background={getBackgroundFor(friend.id)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* messages */}
       <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
@@ -418,6 +406,35 @@ export function ChatRoomPage({
             }}
             onClose={onBack}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {backgroundOpen && (
+          <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/30 px-3 pb-3 pt-12">
+            <div className="w-full max-w-md rounded-3xl bg-background p-4 shadow-xl">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">本次事件背景</p>
+                  <p className="mt-0.5 text-[11px] text-text-secondary">翻译小天使已了解 🧚</p>
+                </div>
+                <button
+                  onClick={() => setBackgroundOpen(false)}
+                  className="rounded-full p-1.5 text-text-secondary transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="关闭事件背景"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="grid gap-2">
+                <BackgroundSummary
+                  label={`${currentUser.nickname}（你）`}
+                  background={getBackgroundFor(currentUser.id)}
+                />
+                <BackgroundSummary label={friend.nickname} background={getBackgroundFor(friend.id)} />
+              </div>
+            </div>
+          </div>
         )}
       </AnimatePresence>
 

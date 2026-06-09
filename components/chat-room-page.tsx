@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence } from "framer-motion"
 import { ChevronLeft, Send, Mic, BarChart3 } from "lucide-react"
 import { Avatar } from "@/components/avatar"
@@ -61,7 +61,7 @@ export function ChatRoomPage({
   const userA = { nickname: currentUser.nickname, color: currentUser.avatarColor }
   const userB = { nickname: friend.nickname, color: friend.avatarColor }
 
-  function mergeMessages(nextMessages: Message[]) {
+  const mergeMessages = useCallback((nextMessages: Message[]) => {
     setMessages((current) => {
       const byId = new Map(current.map((message) => [message.id, message]))
       for (const message of nextMessages) {
@@ -77,7 +77,14 @@ export function ChatRoomPage({
       }
       return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt)
     })
-  }
+  }, [])
+
+  const refreshMessages = useCallback(() => {
+    if (!roomId) return Promise.resolve()
+    return getMessagesBackend(roomId, currentUser.id)
+      .then(mergeMessages)
+      .catch(() => {})
+  }, [roomId, currentUser.id, mergeMessages])
 
   useEffect(() => {
     let cancelled = false
@@ -114,6 +121,31 @@ export function ChatRoomPage({
     }, 5000)
     return () => window.clearInterval(timer)
   }, [roomId])
+
+  useEffect(() => {
+    if (!roomId) return
+    refreshMessages()
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        refreshMessages()
+      }
+    }, 2000)
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refreshMessages()
+    }
+    window.addEventListener("focus", refreshMessages)
+    window.addEventListener("online", refreshMessages)
+    document.addEventListener("visibilitychange", refreshWhenVisible)
+
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener("focus", refreshMessages)
+      window.removeEventListener("online", refreshMessages)
+      document.removeEventListener("visibilitychange", refreshWhenVisible)
+    }
+  }, [roomId, refreshMessages])
 
   useEffect(() => {
     if (!roomId) return
@@ -158,17 +190,10 @@ export function ChatRoomPage({
       )
       .subscribe()
 
-    const catchup = window.setInterval(() => {
-      getMessagesBackend(roomId, currentUser.id)
-        .then(mergeMessages)
-        .catch(() => {})
-    }, 15000)
-
     return () => {
-      window.clearInterval(catchup)
       supabase.removeChannel(channel)
     }
-  }, [roomId, currentUser.id])
+  }, [roomId, currentUser.id, mergeMessages])
 
   useEffect(() => {
     requestAnimationFrame(() => {

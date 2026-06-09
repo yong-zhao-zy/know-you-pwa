@@ -45,6 +45,13 @@ export function AiInterpretationCard({
       <p className="mb-1 text-[13px] font-medium text-foreground">翻译小天使的解读</p>
       <p className="mb-3 text-[13px] leading-relaxed text-foreground/80">{message.interpretation}</p>
 
+      {message.interpreting ? (
+        <div className="rounded-xl bg-white/60 px-3 py-2.5 text-xs text-text-secondary">
+          解读完成后会自动出现在这里。
+        </div>
+      ) : (
+        <>
+
       {/* ② guesses */}
       <div className="mb-3 rounded-xl bg-white/60 p-2.5">
         <p className="mb-2 text-[13px] font-medium text-foreground">
@@ -146,6 +153,8 @@ export function AiInterpretationCard({
         >
           小天使再补充一句：你可以试着用「我听见你在担心……」开头，会比直接解释更容易被接住。
         </motion.p>
+      )}
+        </>
       )}
     </motion.div>
   )

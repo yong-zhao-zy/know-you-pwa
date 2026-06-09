@@ -29,7 +29,7 @@ type FriendRequestRow = {
   status: "pending" | "accepted" | "rejected"
 }
 
-type MessageRow = {
+export type MessageRow = {
   id: string
   room_id: string
   sender_id: string
@@ -37,7 +37,7 @@ type MessageRow = {
   created_at: string
 }
 
-type InterpretationRow = {
+export type InterpretationRow = {
   id: string
   message_id: string
   interpretation: string
@@ -47,6 +47,9 @@ type InterpretationRow = {
   understood: boolean
   expanded: boolean
 }
+
+const PENDING_INTERPRETATION = "翻译小天使正在解读这句话，请稍等…"
+const PENDING_RECEIVER_HINT = "小天使正在整理更容易被理解的表达方式。"
 
 type ChatBackgroundRow = {
   room_id: string
@@ -69,6 +72,44 @@ function mapProfile(row: ProfileRow): User {
 
 function mapPublicProfile(row: ProfileRow): PublicUser {
   return mapProfile(row)
+}
+
+export function mapMessageWithInterpretation(
+  row: MessageRow,
+  currentUserId: string,
+  interpretation?: InterpretationRow,
+): Message {
+  return {
+    id: row.id,
+    sender: row.sender_id === currentUserId ? "A" : "B",
+    senderId: row.sender_id,
+    roomId: row.room_id,
+    text: row.content,
+    createdAt: new Date(row.created_at).getTime(),
+    interpretation: interpretation?.interpretation ?? PENDING_INTERPRETATION,
+    receiverHint: interpretation?.receiver_hint ?? PENDING_RECEIVER_HINT,
+    guessOptions: interpretation?.guess_options ?? [],
+    confirmed: interpretation?.confirmed ?? false,
+    understood: interpretation?.understood ?? false,
+    expanded: interpretation?.expanded ?? false,
+    interpretationId: interpretation?.id,
+    interpreting: !interpretation,
+  }
+}
+
+export function applyInterpretationToMessage(message: Message, interpretation: InterpretationRow): Message {
+  if (message.id !== interpretation.message_id) return message
+  return {
+    ...message,
+    interpretation: interpretation.interpretation,
+    receiverHint: interpretation.receiver_hint,
+    guessOptions: interpretation.guess_options,
+    confirmed: interpretation.confirmed,
+    understood: interpretation.understood,
+    expanded: interpretation.expanded,
+    interpretationId: interpretation.id,
+    interpreting: false,
+  }
 }
 
 function getErrorMessage(error: unknown) {
@@ -438,20 +479,7 @@ export async function getMessagesBackend(roomId: string, currentUserId: string):
 
   return rows.map((row) => {
     const interpretation = interpretations.get(row.id)
-    return {
-      id: row.id,
-      sender: row.sender_id === currentUserId ? "A" : "B",
-      senderId: row.sender_id,
-      text: row.content,
-      createdAt: new Date(row.created_at).getTime(),
-      interpretation: interpretation?.interpretation ?? generateInterpretation(row.content),
-      receiverHint: interpretation?.receiver_hint ?? generateReceiverHint(row.content),
-      guessOptions: interpretation?.guess_options ?? generateGuessOptions(),
-      confirmed: interpretation?.confirmed ?? false,
-      understood: interpretation?.understood ?? false,
-      expanded: interpretation?.expanded ?? false,
-      interpretationId: interpretation?.id,
-    }
+    return mapMessageWithInterpretation(row, currentUserId, interpretation)
   })
 }
 
@@ -471,6 +499,13 @@ export async function createMessageBackend(roomId: string, text: string, context
     .single()
   if (messageError) throw messageError
 
+  generateAndSaveInterpretationBackend((messageRow as MessageRow).id, text, context).catch(() => {})
+
+  return mapMessageWithInterpretation(messageRow as MessageRow, current.id)
+}
+
+export async function generateAndSaveInterpretationBackend(messageId: string, text: string, context?: unknown) {
+  const supabase = requireSupabaseBrowserClient()
   const session = await supabase.auth.getSession()
   const response = await fetch("/api/interpret", {
     method: "POST",
@@ -492,33 +527,22 @@ export async function createMessageBackend(roomId: string, text: string, context
 
   const { data: interpretationRow, error: interpretationError } = await supabase
     .from("ai_interpretations")
-    .insert({
-      message_id: (messageRow as MessageRow).id,
-      interpretation: ai.interpretation,
-      receiver_hint: ai.receiverHint,
-      guess_options: ai.guessOptions,
-      confirmed: false,
-      understood: false,
-      expanded: false,
-    })
+    .upsert(
+      {
+        message_id: messageId,
+        interpretation: ai.interpretation,
+        receiver_hint: ai.receiverHint,
+        guess_options: ai.guessOptions,
+        confirmed: false,
+        understood: false,
+        expanded: false,
+      },
+      { onConflict: "message_id" },
+    )
     .select("*")
     .single()
   if (interpretationError) throw interpretationError
-
-  return {
-    id: (messageRow as MessageRow).id,
-    sender: "A",
-    senderId: current.id,
-    text,
-    createdAt: new Date((messageRow as MessageRow).created_at).getTime(),
-    interpretation: ai.interpretation,
-    receiverHint: ai.receiverHint,
-    guessOptions: ai.guessOptions,
-    confirmed: false,
-    understood: false,
-    expanded: false,
-    interpretationId: (interpretationRow as InterpretationRow).id,
-  }
+  return interpretationRow as InterpretationRow
 }
 
 export async function updateInterpretationBackend(message: Message) {

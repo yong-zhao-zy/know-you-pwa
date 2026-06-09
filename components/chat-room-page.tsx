@@ -15,13 +15,17 @@ import {
   genId,
 } from "@/lib/storage"
 import {
+  applyInterpretationToMessage,
   createMessageBackend,
   getChatBackgroundsBackend,
   getMessagesBackend,
   getOrCreateRoom,
+  mapMessageWithInterpretation,
   saveChatBackgroundBackend,
   updateInterpretationBackend,
 } from "@/lib/backend"
+import { getSupabaseBrowserClient } from "@/lib/supabase/client"
+import type { MessageRow, InterpretationRow } from "@/lib/backend"
 import type { User, Friend, Message, Sender, ChatBackground, ChatBackgroundEntry, EmotionState } from "@/lib/types"
 
 const EMOTION_LABELS: Record<EmotionState, string> = {
@@ -52,9 +56,28 @@ export function ChatRoomPage({
   const [roomId, setRoomId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const pendingInterpretationsRef = useRef(new Map<string, InterpretationRow>())
 
   const userA = { nickname: currentUser.nickname, color: currentUser.avatarColor }
   const userB = { nickname: friend.nickname, color: friend.avatarColor }
+
+  function mergeMessages(nextMessages: Message[]) {
+    setMessages((current) => {
+      const byId = new Map(current.map((message) => [message.id, message]))
+      for (const message of nextMessages) {
+        const pendingInterpretation = pendingInterpretationsRef.current.get(message.id)
+        const messageWithInterpretation = pendingInterpretation
+          ? applyInterpretationToMessage(message, pendingInterpretation)
+          : message
+        byId.set(message.id, {
+          ...byId.get(message.id),
+          ...messageWithInterpretation,
+        })
+        if (pendingInterpretation) pendingInterpretationsRef.current.delete(message.id)
+      }
+      return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt)
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -93,6 +116,61 @@ export function ChatRoomPage({
   }, [roomId])
 
   useEffect(() => {
+    if (!roomId) return
+    const supabase = getSupabaseBrowserClient()
+    if (!supabase) return
+
+    const channel = supabase
+      .channel(`chat-room:${roomId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `room_id=eq.${roomId}`,
+        },
+        (payload: { new: MessageRow }) => {
+          const message = mapMessageWithInterpretation(payload.new, currentUser.id)
+          mergeMessages([message])
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ai_interpretations",
+        },
+        (payload: { new: InterpretationRow }) => {
+          const interpretation = payload.new
+          setMessages((current) => {
+            let matched = false
+            const next = current.map((message) => {
+              if (message.id !== interpretation.message_id) return message
+              matched = true
+              return applyInterpretationToMessage(message, interpretation)
+            })
+            if (!matched) pendingInterpretationsRef.current.set(interpretation.message_id, interpretation)
+            return next
+          })
+        },
+      )
+      .subscribe()
+
+    const catchup = window.setInterval(() => {
+      getMessagesBackend(roomId, currentUser.id)
+        .then(mergeMessages)
+        .catch(() => {})
+    }, 15000)
+
+    return () => {
+      window.clearInterval(catchup)
+      supabase.removeChannel(channel)
+    }
+  }, [roomId, currentUser.id])
+
+  useEffect(() => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
     })
@@ -117,7 +195,7 @@ export function ChatRoomPage({
     setSending(true)
     try {
       const msg = await createMessageBackend(roomId, text, background)
-      setMessages((ms) => [...ms, msg])
+      mergeMessages([msg])
     } catch {
       const fallback: Message = {
         id: genId(),

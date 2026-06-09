@@ -58,6 +58,7 @@ export interface Message {
   senderId?: string
   text: string
   createdAt: number
+  roomId?: string
   // AI interpretation
   interpretation: string
   guessOptions: GuessOption[]
@@ -66,4 +67,5 @@ export interface Message {
   understood: boolean
   expanded: boolean
   interpretationId?: string
+  interpreting?: boolean
 }

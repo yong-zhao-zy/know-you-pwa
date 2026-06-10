@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { Avatar } from "@/components/avatar"
 import { AppButton } from "@/components/app-button"
+import { PwaInstallCard } from "@/components/pwa-install-card"
 import { TextField } from "@/components/text-field"
 import { useToast } from "@/components/toast"
 import {
@@ -291,6 +292,8 @@ export function FriendHomePage({
 
         {tab === "mine" && (
           <>
+        <PwaInstallCard />
+
         {/* add friend */}
         <Section title="添加好友" icon={<UserPlus className="h-4 w-4" />}>
           <div className="flex gap-2">

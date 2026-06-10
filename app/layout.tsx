@@ -5,13 +5,16 @@ import { ServiceWorkerRegister } from "@/components/service-worker-register"
 export const metadata: Metadata = {
   title: "Know You · 翻译小天使",
   description: "一款专为情侣设计的沟通辅助工具，AI 帮你们更准确地理解彼此。",
-  generator: "v0.app",
   applicationName: "Know You",
   manifest: "/manifest.json",
+  metadataBase: new URL("https://know.yongteam.com"),
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "Know You",
+  },
+  formatDetection: {
+    telephone: false,
   },
   icons: {
     icon: [
@@ -19,6 +22,12 @@ export const metadata: Metadata = {
       { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: [{ url: "/icons/apple-icon-180.png", sizes: "180x180", type: "image/png" }],
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-capable": "yes",
+    "apple-mobile-web-app-status-bar-style": "default",
+    "apple-mobile-web-app-title": "Know You",
   },
 }
 

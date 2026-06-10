@@ -1,5 +1,5 @@
-const CACHE_NAME = "knowyou-v2"
-const PRECACHE = ["/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"]
+const CACHE_NAME = "knowyou-v3"
+const PRECACHE = ["/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-icon-180.png"]
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

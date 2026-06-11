@@ -8,6 +8,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { AiInterpretationCard } from "@/components/ai-interpretation-card"
 import { BackgroundModal } from "@/components/background-modal"
 import { InsightDrawer } from "@/components/insight-drawer"
+import { useToast } from "@/components/toast"
 import {
   generateInterpretation,
   generateReceiverHint,
@@ -29,6 +30,18 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import type { MessageRow, InterpretationRow } from "@/lib/backend"
 import type { User, Friend, Message, Sender, ChatBackground, ChatBackgroundEntry, EmotionState } from "@/lib/types"
 
+type SpeechRecognitionLike = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  start: () => void
+  stop: () => void
+  abort: () => void
+  onresult: ((event: any) => void) | null
+  onerror: ((event: any) => void) | null
+  onend: (() => void) | null
+}
+
 const EMOTION_LABELS: Record<EmotionState, string> = {
   calm: "平静",
   anxious: "有些焦虑",
@@ -48,6 +61,7 @@ export function ChatRoomPage({
   onBack: () => void
   initialRoomId?: string | null
 }) {
+  const toast = useToast()
   const [showBgModal, setShowBgModal] = useState(true)
   const [background, setBackground] = useState<ChatBackground | null>(null)
   const [backgroundEntries, setBackgroundEntries] = useState<ChatBackgroundEntry[]>([])
@@ -56,11 +70,16 @@ export function ChatRoomPage({
   const [backgroundOpen, setBackgroundOpen] = useState(false)
   const [input, setInput] = useState("")
   const [recording, setRecording] = useState(false)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [messages, setMessages] = useState<Message[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingInterpretationsRef = useRef(new Map<string, InterpretationRow>())
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const voiceBaseInputRef = useRef("")
+  const recordingTimerRef = useRef<number | null>(null)
+  const recordingLimitTimerRef = useRef<number | null>(null)
 
   const userA = { nickname: currentUser.nickname, color: currentUser.avatarColor }
   const userB = { nickname: friend.nickname, color: friend.avatarColor }
@@ -206,6 +225,13 @@ export function ChatRoomPage({
     })
   }, [messages])
 
+  useEffect(() => {
+    return () => {
+      stopVoiceRecognition()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const countA = useMemo(() => messages.filter((m) => m.sender === "A").length + 2, [messages])
   const countB = useMemo(() => messages.filter((m) => m.sender === "B").length + 1, [messages])
 
@@ -245,13 +271,96 @@ export function ChatRoomPage({
     }
   }
 
-  function handleVoice() {
-    if (recording) return
-    setRecording(true)
-    setTimeout(() => {
-      setInput("我其实有点难过，但不知道怎么说")
+  function getSpeechRecognition() {
+    if (typeof window === "undefined") return null
+    return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null
+  }
+
+  function appendVoiceText(base: string, transcript: string) {
+    const cleanTranscript = transcript.trim()
+    if (!cleanTranscript) return base
+    if (!base.trim()) return cleanTranscript
+    const needsSpace = /[a-zA-Z0-9]$/.test(base.trim()) && /^[a-zA-Z0-9]/.test(cleanTranscript)
+    return `${base.trimEnd()}${needsSpace ? " " : ""}${cleanTranscript}`
+  }
+
+  function clearVoiceTimers() {
+    if (recordingTimerRef.current) {
+      window.clearInterval(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+    if (recordingLimitTimerRef.current) {
+      window.clearTimeout(recordingLimitTimerRef.current)
+      recordingLimitTimerRef.current = null
+    }
+  }
+
+  function stopVoiceRecognition() {
+    clearVoiceTimers()
+    setRecording(false)
+    setRecordingSeconds(0)
+    const recognition = recognitionRef.current
+    recognitionRef.current = null
+    if (recognition) {
+      try {
+        recognition.stop()
+      } catch {}
+    }
+  }
+
+  function startVoiceRecognition() {
+    if (recording || sending) return
+    const SpeechRecognition = getSpeechRecognition()
+    if (!SpeechRecognition) {
+      toast("当前浏览器不支持实时语音识别，请换 Safari/Chrome 或先手动输入")
+      return
+    }
+
+    const recognition: SpeechRecognitionLike = new SpeechRecognition()
+    recognition.lang = "zh-CN"
+    recognition.continuous = true
+    recognition.interimResults = true
+    voiceBaseInputRef.current = input
+
+    recognition.onresult = (event: any) => {
+      let transcript = ""
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += event.results[index][0]?.transcript ?? ""
+      }
+      setInput(appendVoiceText(voiceBaseInputRef.current, transcript))
+    }
+    recognition.onerror = (event: any) => {
+      if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
+        toast("麦克风权限未开启，允许浏览器使用麦克风后再试")
+      } else if (event?.error === "no-speech") {
+        toast("没有识别到声音，可以再按住说一次")
+      } else {
+        toast("语音识别暂时不可用，请稍后再试")
+      }
+      stopVoiceRecognition()
+    }
+    recognition.onend = () => {
+      clearVoiceTimers()
+      recognitionRef.current = null
       setRecording(false)
-    }, 3000)
+      setRecordingSeconds(0)
+    }
+
+    try {
+      recognition.start()
+      recognitionRef.current = recognition
+      setRecording(true)
+      setRecordingSeconds(0)
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingSeconds((seconds) => Math.min(seconds + 1, 60))
+      }, 1000)
+      recordingLimitTimerRef.current = window.setTimeout(() => {
+        stopVoiceRecognition()
+      }, 60000)
+    } catch {
+      recognitionRef.current = null
+      toast("语音识别启动失败，请稍后再试")
+    }
   }
 
   async function handleBackgroundSubmit(bg: ChatBackground) {
@@ -377,25 +486,38 @@ export function ChatRoomPage({
       <div className="border-t border-border bg-background px-3 py-2.5 safe-bottom">
         <div className="flex items-center gap-2">
           <button
-            onClick={handleVoice}
+            type="button"
+            onPointerDown={(event) => {
+              event.preventDefault()
+              startVoiceRecognition()
+            }}
+            onPointerUp={(event) => {
+              event.preventDefault()
+              stopVoiceRecognition()
+            }}
+            onPointerCancel={stopVoiceRecognition}
+            onPointerLeave={() => {
+              if (recording) stopVoiceRecognition()
+            }}
+            onContextMenu={(event) => event.preventDefault()}
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${
               recording ? "bg-primary text-primary-foreground" : "bg-muted text-foreground hover:bg-[#ededeb]"
             }`}
-            aria-label="语音输入"
+            aria-label={recording ? "松开结束语音输入" : "按住语音输入"}
+            title="按住说话"
           >
             <Mic className="h-5 w-5" />
           </button>
           <input
-            value={recording ? "" : input}
+            value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder={recording ? "语音识别中…" : "说点什么…"}
-            disabled={recording}
+            placeholder={recording ? `语音识别中… ${recordingSeconds}s / 60s` : "说点什么…"}
             className="h-10 flex-1 rounded-full border border-border bg-card px-4 text-sm text-foreground outline-none placeholder:text-text-secondary focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || recording || sending || !roomId}
+            disabled={!input.trim() || sending || !roomId}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-[#b98fcf] active:translate-y-px disabled:opacity-40"
             aria-label="发送"
           >

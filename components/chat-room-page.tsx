@@ -42,6 +42,9 @@ type SpeechRecognitionLike = {
   onend: (() => void) | null
 }
 
+const IS_IOS =
+  typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent)
+
 const EMOTION_LABELS: Record<EmotionState, string> = {
   calm: "平静",
   anxious: "有些焦虑",
@@ -78,6 +81,8 @@ export function ChatRoomPage({
   const pendingInterpretationsRef = useRef(new Map<string, InterpretationRow>())
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const voiceBaseInputRef = useRef("")
+  const finalVoiceTranscriptRef = useRef("")
+  const shouldKeepListeningRef = useRef(false)
   const recordingTimerRef = useRef<number | null>(null)
   const recordingLimitTimerRef = useRef<number | null>(null)
 
@@ -297,6 +302,7 @@ export function ChatRoomPage({
 
   function stopVoiceRecognition() {
     clearVoiceTimers()
+    shouldKeepListeningRef.current = false
     setRecording(false)
     setRecordingSeconds(0)
     const recognition = recognitionRef.current
@@ -318,28 +324,47 @@ export function ChatRoomPage({
 
     const recognition: SpeechRecognitionLike = new SpeechRecognition()
     recognition.lang = "zh-CN"
-    recognition.continuous = true
+    recognition.continuous = !IS_IOS
     recognition.interimResults = true
     voiceBaseInputRef.current = input
+    finalVoiceTranscriptRef.current = ""
+    shouldKeepListeningRef.current = true
 
     recognition.onresult = (event: any) => {
-      let transcript = ""
-      for (let index = 0; index < event.results.length; index += 1) {
-        transcript += event.results[index][0]?.transcript ?? ""
+      let interimTranscript = ""
+      for (let index = event.resultIndex ?? 0; index < event.results.length; index += 1) {
+        const part = event.results[index][0]?.transcript ?? ""
+        if (event.results[index].isFinal) {
+          finalVoiceTranscriptRef.current += part
+        } else {
+          interimTranscript += part
+        }
       }
-      setInput(appendVoiceText(voiceBaseInputRef.current, transcript))
+      setInput(appendVoiceText(voiceBaseInputRef.current, finalVoiceTranscriptRef.current + interimTranscript))
     }
     recognition.onerror = (event: any) => {
       if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
         toast("麦克风权限未开启，允许浏览器使用麦克风后再试")
       } else if (event?.error === "no-speech") {
         toast("没有识别到声音，可以再按住说一次")
+      } else if (event?.error === "audio-capture") {
+        toast("没有获取到麦克风，请检查浏览器麦克风权限")
+      } else if (event?.error === "network") {
+        toast("语音识别网络服务不可用，请切换网络或稍后再试")
+      } else if (event?.error) {
+        toast(`语音识别失败：${event.error}`)
       } else {
         toast("语音识别暂时不可用，请稍后再试")
       }
       stopVoiceRecognition()
     }
     recognition.onend = () => {
+      if (IS_IOS && shouldKeepListeningRef.current && recordingLimitTimerRef.current) {
+        try {
+          recognition.start()
+          return
+        } catch {}
+      }
       clearVoiceTimers()
       recognitionRef.current = null
       setRecording(false)
@@ -347,16 +372,32 @@ export function ChatRoomPage({
     }
 
     try {
-      recognition.start()
-      recognitionRef.current = recognition
-      setRecording(true)
-      setRecordingSeconds(0)
-      recordingTimerRef.current = window.setInterval(() => {
-        setRecordingSeconds((seconds) => Math.min(seconds + 1, 60))
-      }, 1000)
-      recordingLimitTimerRef.current = window.setTimeout(() => {
-        stopVoiceRecognition()
-      }, 60000)
+      const startRecognition = () => {
+        recognition.start()
+        recognitionRef.current = recognition
+        setRecording(true)
+        setRecordingSeconds(0)
+        recordingTimerRef.current = window.setInterval(() => {
+          setRecordingSeconds((seconds) => Math.min(seconds + 1, 60))
+        }, 1000)
+        recordingLimitTimerRef.current = window.setTimeout(() => {
+          stopVoiceRecognition()
+        }, 60000)
+      }
+
+      if (navigator.mediaDevices?.getUserMedia) {
+        navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((stream) => {
+            stream.getTracks().forEach((track) => track.stop())
+            startRecognition()
+          })
+          .catch(() => {
+            toast("麦克风权限未开启，允许浏览器使用麦克风后再试")
+          })
+      } else {
+        startRecognition()
+      }
     } catch {
       recognitionRef.current = null
       toast("语音识别启动失败，请稍后再试")

@@ -66,7 +66,7 @@ export function ChatRoomPage({
   initialRoomId?: string | null
 }) {
   const toast = useToast()
-  const [showBgModal, setShowBgModal] = useState(true)
+  const [showBgModal, setShowBgModal] = useState(false)
   const [background, setBackground] = useState<ChatBackground | null>(null)
   const [backgroundEntries, setBackgroundEntries] = useState<ChatBackgroundEntry[]>([])
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -252,7 +252,7 @@ export function ChatRoomPage({
 
   async function handleSend() {
     const text = input.trim()
-    if (!text || !roomId || sending) return
+    if (!text || !roomId || sending || !hasOwnBackground) return
     setInput("")
     setSending(true)
     try {
@@ -359,7 +359,7 @@ export function ChatRoomPage({
   }
 
   function startVoiceRecognition() {
-    if (recording || sending) return
+    if (recording || sending || !hasOwnBackground) return
     const SpeechRecognition = getSpeechRecognition()
     if (!SpeechRecognition) {
       toast("当前浏览器不支持实时语音识别，请换 Safari/Chrome 或先手动输入")
@@ -451,6 +451,7 @@ export function ChatRoomPage({
   async function handleBackgroundSubmit(bg: ChatBackground) {
     setBackground(bg)
     setShowBgModal(false)
+    setBackgroundOpen(false)
     if (!roomId) return
     const shouldAskOpening = !messages.some((message) => message.messageKind === "ai_opening_question")
     try {
@@ -479,6 +480,9 @@ export function ChatRoomPage({
   function getBackgroundFor(userId: string) {
     return backgroundEntries.find((entry) => entry.userId === userId)?.background ?? null
   }
+
+  const ownBackground = getBackgroundFor(currentUser.id) ?? background
+  const hasOwnBackground = Boolean(ownBackground)
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background">
@@ -528,6 +532,21 @@ export function ChatRoomPage({
       {/* messages */}
       <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
         <div className="flex flex-col gap-5">
+          {!hasOwnBackground && (
+            <div className="rounded-2xl border border-dashed border-primary/35 bg-primary/10 px-4 py-3">
+              <p className="text-sm font-medium text-foreground">这是一个事件邀请</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+                先补充这次想聊的背景，保存后会回到聊天框，猫猫再帮你们开启对话。
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowBgModal(true)}
+                className="mt-3 inline-flex h-8 items-center rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-[#b98fcf] active:translate-y-px"
+              >
+                补充事件背景
+              </button>
+            </div>
+          )}
           {messages.map((m) => {
             return (
               <div key={m.id} className="flex flex-col">
@@ -544,7 +563,7 @@ export function ChatRoomPage({
           <button
             type="button"
             onClick={() => requestAiGuide("ai_clarifying_question")}
-            disabled={!roomId || aiGuiding}
+            disabled={!roomId || aiGuiding || !hasOwnBackground}
             className="inline-flex h-8 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/15 active:translate-y-px disabled:opacity-50"
           >
             <Sparkles className="h-3.5 w-3.5" />
@@ -556,7 +575,7 @@ export function ChatRoomPage({
             type="button"
             onPointerDown={(event) => {
               event.preventDefault()
-              startVoiceRecognition()
+              if (hasOwnBackground) startVoiceRecognition()
             }}
             onPointerUp={(event) => {
               event.preventDefault()
@@ -579,12 +598,19 @@ export function ChatRoomPage({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder={recording ? `语音识别中… ${recordingSeconds}s / 60s` : "说点什么…"}
-            className="h-10 flex-1 rounded-full border border-border bg-card px-4 text-sm text-foreground outline-none placeholder:text-text-secondary focus:border-primary focus:ring-2 focus:ring-primary/20"
+            placeholder={
+              !hasOwnBackground
+                ? "先补充事件背景后开始聊天"
+                : recording
+                  ? `语音识别中… ${recordingSeconds}s / 60s`
+                  : "说点什么…"
+            }
+            disabled={!hasOwnBackground}
+            className="h-10 flex-1 rounded-full border border-border bg-card px-4 text-sm text-foreground outline-none placeholder:text-text-secondary focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-muted/60"
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || sending || !roomId}
+            disabled={!input.trim() || sending || !roomId || !hasOwnBackground}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-[#b98fcf] active:translate-y-px disabled:opacity-40"
             aria-label="发送"
           >
@@ -597,10 +623,11 @@ export function ChatRoomPage({
       <AnimatePresence>
         {showBgModal && (
           <BackgroundModal
+            initialBackground={ownBackground}
             onSubmit={(bg) => {
               handleBackgroundSubmit(bg)
             }}
-            onClose={onBack}
+            onClose={() => setShowBgModal(false)}
           />
         )}
       </AnimatePresence>
@@ -629,6 +656,16 @@ export function ChatRoomPage({
                 />
                 <BackgroundSummary label={friend.nickname} background={getBackgroundFor(friend.id)} />
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBackgroundOpen(false)
+                  setShowBgModal(true)
+                }}
+                className="mt-3 h-10 w-full rounded-full bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-[#b98fcf] active:translate-y-px"
+              >
+                {hasOwnBackground ? "更新我的事件背景" : "补充我的事件背景"}
+              </button>
             </div>
           </div>
         )}

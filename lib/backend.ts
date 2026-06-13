@@ -513,6 +513,7 @@ export async function getChatThreadsBackend(currentUserId: string): Promise<Chat
       friend: mapPublicProfile(friendProfile),
       updatedAt: new Date(lastMessage?.created_at ?? room.updated_at ?? room.created_at).getTime(),
       lastMessage: lastMessage?.content,
+      hasOwnBackground: Boolean(background),
     })
   }
 

@@ -16,15 +16,17 @@ const EMOTIONS: { value: EmotionState; emoji: string; label: string }[] = [
 ]
 
 export function BackgroundModal({
+  initialBackground,
   onSubmit,
   onClose,
 }: {
+  initialBackground?: ChatBackground | null
   onSubmit: (bg: ChatBackground) => void
   onClose: () => void
 }) {
-  const [topic, setTopic] = useState("")
-  const [emotion, setEmotion] = useState<EmotionState | null>(null)
-  const [hope, setHope] = useState("")
+  const [topic, setTopic] = useState(initialBackground?.topic ?? "")
+  const [emotion, setEmotion] = useState<EmotionState | null>(initialBackground?.emotion ?? null)
+  const [hope, setHope] = useState(initialBackground?.hope ?? "")
 
   const selectedEmotion = emotion ?? "other"
 
@@ -39,11 +41,11 @@ export function BackgroundModal({
         <div className="mb-1 flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 shrink-0 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">开始之前，先告诉猫猫背景吧</h2>
+            <h2 className="text-lg font-semibold text-foreground">补充这次事件背景</h2>
           </div>
           <button
             onClick={onClose}
-            aria-label="退出对话间"
+            aria-label="返回聊天"
             className="-mr-1 -mt-1 shrink-0 rounded-full p-1.5 text-text-secondary transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-5 w-5" />
@@ -107,7 +109,7 @@ export function BackgroundModal({
           onClick={onClose}
           className="mt-3 w-full py-2 text-center text-xs text-text-secondary transition-colors hover:text-foreground"
         >
-          暂时不聊了，先退出
+          先回到聊天
         </button>
       </motion.div>
     </div>

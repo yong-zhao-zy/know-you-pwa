@@ -56,6 +56,7 @@ export interface ChatThread {
   friend: Friend
   updatedAt: number
   lastMessage?: string
+  hasOwnBackground?: boolean
 }
 
 export type Sender = "A" | "B" | "AI"

@@ -290,9 +290,16 @@ export function FriendHomePage({
                                     className="flex w-full items-center gap-3 border-b border-border/70 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/40"
                                   >
                                     <div className="min-w-0 flex-1">
-                                      <p className="truncate text-sm font-medium text-foreground">{thread.title}</p>
-                                      <p className="mt-0.5 text-xs text-text-secondary">
-                                        {formatThreadDate(thread.updatedAt)}
+                                      <div className="flex min-w-0 items-center gap-2">
+                                        <p className="truncate text-sm font-medium text-foreground">{thread.title}</p>
+                                        {!thread.hasOwnBackground && (
+                                          <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">
+                                            邀请事件
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="mt-0.5 truncate text-xs text-text-secondary">
+                                        {!thread.hasOwnBackground ? "待补充事件背景" : formatThreadDate(thread.updatedAt)}
                                       </p>
                                     </div>
                                     <button

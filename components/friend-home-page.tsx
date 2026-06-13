@@ -146,7 +146,12 @@ export function FriendHomePage({
     }
   }
 
-  const threadsByFriend = friends.map((friend) => ({
+  const chatFriendsById = new Map<string, Friend>()
+  for (const friend of friends) chatFriendsById.set(friend.id, friend)
+  for (const thread of threads) {
+    if (!chatFriendsById.has(thread.friend.id)) chatFriendsById.set(thread.friend.id, thread.friend)
+  }
+  const threadsByFriend = [...chatFriendsById.values()].map((friend) => ({
     friend,
     threads: threads.filter((thread) => thread.friend.id === friend.id),
   }))
@@ -225,7 +230,7 @@ export function FriendHomePage({
         {tab === "chats" && (
           <>
             <Section title="事件聊天" icon={<MessageCircle className="h-4 w-4" />}>
-              {friends.length === 0 && <Empty text="添加好友后即可新建事件聊天" />}
+              {friends.length === 0 && threads.length === 0 && <Empty text="添加好友后即可新建事件聊天" />}
               <div className="flex flex-col gap-2">
                 {threadsByFriend.map(({ friend, threads: friendThreads }) => {
                   const isExpanded = Boolean(expandedChatFriends[friend.id])

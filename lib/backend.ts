@@ -14,6 +14,7 @@ import type {
   Sender,
   ChatThread,
   User,
+  MessageKind,
 } from "@/lib/types"
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js"
 
@@ -34,7 +35,9 @@ type FriendRequestRow = {
 export type MessageRow = {
   id: string
   room_id: string
-  sender_id: string
+  sender_id: string | null
+  sender_type?: "user" | "ai" | null
+  message_kind?: MessageKind | null
   content: string
   created_at: string
 }
@@ -60,8 +63,8 @@ export type InterpretationRow = {
   expanded: boolean
 }
 
-const PENDING_INTERPRETATION = "翻译小天使正在解读这句话，请稍等…"
-const PENDING_RECEIVER_HINT = "小天使正在整理更容易被理解的表达方式。"
+const PENDING_INTERPRETATION = "猫猫正在整理这句话背后的感受。"
+const PENDING_RECEIVER_HINT = "猫猫正在整理更容易继续对话的方向。"
 
 type ChatBackgroundRow = {
   room_id: string
@@ -91,13 +94,17 @@ export function mapMessageWithInterpretation(
   currentUserId: string,
   interpretation?: InterpretationRow,
 ): Message {
+  const senderType = row.sender_type ?? "user"
+  const sender = senderType === "ai" ? "AI" : row.sender_id === currentUserId ? "A" : "B"
   return {
     id: row.id,
-    sender: row.sender_id === currentUserId ? "A" : "B",
-    senderId: row.sender_id,
+    sender,
+    senderType,
+    senderId: row.sender_id ?? undefined,
     roomId: row.room_id,
     text: row.content,
     createdAt: new Date(row.created_at).getTime(),
+    messageKind: row.message_kind ?? "normal",
     interpretation: interpretation?.interpretation ?? PENDING_INTERPRETATION,
     receiverHint: interpretation?.receiver_hint ?? PENDING_RECEIVER_HINT,
     guessOptions: interpretation?.guess_options ?? [],
@@ -603,9 +610,74 @@ export async function createMessageBackend(roomId: string, text: string, context
     .single()
   if (messageError) throw messageError
 
-  generateAndSaveInterpretationBackend((messageRow as MessageRow).id, text, context).catch(() => {})
-
   return mapMessageWithInterpretation(messageRow as MessageRow, current.id)
+}
+
+export async function createAiMessageBackend(
+  roomId: string,
+  text: string,
+  kind: MessageKind = "ai_clarifying_question",
+): Promise<Message> {
+  const supabase = requireSupabaseBrowserClient()
+  const { data: messageRow, error: messageError } = await supabase
+    .from("messages")
+    .insert({
+      room_id: roomId,
+      sender_id: null,
+      sender_type: "ai",
+      message_kind: kind,
+      content: text,
+    })
+    .select("*")
+    .single()
+  if (messageError) throw messageError
+  return mapMessageWithInterpretation(messageRow as MessageRow, "")
+}
+
+export async function generateAiGuideBackend({
+  roomId,
+  kind,
+  currentUser,
+  friend,
+  backgrounds,
+  recentMessages,
+}: {
+  roomId: string
+  kind: MessageKind
+  currentUser: User
+  friend: Friend
+  backgrounds: ChatBackgroundEntry[]
+  recentMessages: Message[]
+}): Promise<Message> {
+  const supabase = requireSupabaseBrowserClient()
+  const session = await supabase.auth.getSession()
+  const response = await fetch("/api/guide", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(session.data.session?.access_token
+        ? { Authorization: `Bearer ${session.data.session.access_token}` }
+        : {}),
+    },
+    body: JSON.stringify({
+      kind,
+      participants: {
+        currentUser,
+        friend,
+      },
+      backgrounds,
+      recentMessages: recentMessages.slice(-10).map((message) => ({
+        sender: message.sender,
+        text: message.text,
+        kind: message.messageKind ?? "normal",
+      })),
+    }),
+  })
+  const payload = (await response.json().catch(() => ({}))) as { text?: string; kind?: MessageKind; error?: string }
+  if (!response.ok || !payload.text?.trim()) {
+    throw new Error(payload.error || "猫猫暂时没有想好怎么说")
+  }
+  return createAiMessageBackend(roomId, payload.text.trim(), payload.kind ?? kind)
 }
 
 export async function generateAndSaveInterpretationBackend(messageId: string, text: string, context?: unknown) {

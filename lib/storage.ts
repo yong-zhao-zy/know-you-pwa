@@ -140,22 +140,22 @@ export function saveMessages(friendId: string, messages: Message[]) {
 
 export function generateInterpretation(text: string): string {
   if (text.includes("每次都")) {
-    return "TA 说这句话，可能并非真的在评价频率，更多是在表达一种累积的委屈感。"
+    return "发送方说这句话，可能并非真的在评价频率，更多是在表达一种累积的委屈感。"
   }
   if (text.includes("不回我") || text.includes("怎么不回")) {
     return "这句话表面是在问消息，背后可能是在确认自己是否被重视。"
   }
   if (text.includes("没有故意") || text.includes("只是在忙")) {
-    return "TA 可能想表达自己并没有忽视你，只是还没找到更柔和的解释方式。"
+    return "发送方可能想表达自己并没有忽视这段关系，只是还没找到更柔和的解释方式。"
   }
-  return "这句话里可能同时包含事实说明和情绪表达，翻译小天使建议先回应情绪，再讨论事情本身。"
+  return "这句话里可能同时包含事实说明和情绪表达，猫猫建议先回应情绪，再讨论事情本身。"
 }
 
 export function generateReceiverHint(text: string): string {
   if (text.includes("每次都") || text.includes("不回我") || text.includes("怎么不回")) {
-    return "在 TA 的表达习惯里，这样说通常意味着 TA 在用激烈的方式寻求连接，而不是真的在攻击你。"
+    return "在发送方的表达习惯里，这样说通常意味着发送方在用激烈的方式寻求连接，而不是真的在攻击。"
   }
-  return "你可以先回应 TA 的感受，再表达你的具体情况，这会让对话更容易继续。"
+  return "可以先回应发送方的感受，再表达具体情况，这会让对话更容易继续。"
 }
 
 export function generateGuessOptions(): GuessOption[] {

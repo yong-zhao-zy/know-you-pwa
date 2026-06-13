@@ -43,9 +43,23 @@ create table if not exists public.chat_rooms (
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
   room_id uuid not null references public.chat_rooms(id) on delete cascade,
-  sender_id uuid not null references public.profiles(id) on delete cascade,
+  sender_id uuid references public.profiles(id) on delete cascade,
+  sender_type text not null default 'user' check (sender_type in ('user', 'ai')),
+  message_kind text not null default 'normal' check (
+    message_kind in (
+      'normal',
+      'ai_opening_question',
+      'ai_clarifying_question',
+      'ai_pattern_observation',
+      'ai_next_step'
+    )
+  ),
   content text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  check (
+    (sender_type = 'user' and sender_id is not null)
+    or (sender_type = 'ai' and sender_id is null)
+  )
 );
 
 create table if not exists public.chat_backgrounds (
@@ -223,9 +237,13 @@ for select to authenticated using (
 drop policy if exists "messages_insert_sender" on public.messages;
 create policy "messages_insert_sender" on public.messages
 for insert to authenticated with check (
-  auth.uid() = sender_id and exists (
+  exists (
     select 1 from public.chat_rooms r
     where r.id = room_id and (r.user_a = auth.uid() or r.user_b = auth.uid())
+  )
+  and (
+    (sender_type = 'user' and auth.uid() = sender_id)
+    or (sender_type = 'ai' and sender_id is null)
   )
 );
 

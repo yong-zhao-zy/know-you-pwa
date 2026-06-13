@@ -58,7 +58,8 @@ export interface ChatThread {
   lastMessage?: string
 }
 
-export type Sender = "A" | "B"
+export type Sender = "A" | "B" | "AI"
+export type MessageKind = "normal" | "ai_opening_question" | "ai_clarifying_question" | "ai_pattern_observation" | "ai_next_step"
 
 export interface GuessOption {
   id: string
@@ -69,10 +70,12 @@ export interface GuessOption {
 export interface Message {
   id: string
   sender: Sender
+  senderType?: "user" | "ai"
   senderId?: string
   text: string
   createdAt: number
   roomId?: string
+  messageKind?: MessageKind
   // AI interpretation
   interpretation: string
   guessOptions: GuessOption[]

@@ -10,6 +10,8 @@ export function AiInterpretationCard({
   message,
   viewer,
   align,
+  senderShortName,
+  receiverShortName,
   onToggleGuess,
   onConfirm,
   onUnderstood,
@@ -18,6 +20,8 @@ export function AiInterpretationCard({
   message: Message
   viewer: Sender
   align: "left" | "right"
+  senderShortName: string
+  receiverShortName: string
   onToggleGuess: (optionId: string) => void
   onConfirm: () => void
   onUnderstood: () => void
@@ -35,15 +39,12 @@ export function AiInterpretationCard({
       className={`mt-2 max-w-[88%] rounded-2xl bg-ai-card p-3.5 ${align === "right" ? "ml-auto" : "mr-auto"}`}
       style={{ borderLeft: "4px solid var(--ai-line)" }}
     >
-      {/* header */}
-      <div className="mb-2 flex items-center gap-1.5">
-        <span className="text-base leading-none">🧚</span>
-        <span className="text-xs font-medium text-[#7e6bb0]">翻译小天使</span>
+      <div className="mb-3 flex items-start gap-2">
+        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/70 text-sm leading-none">
+          🧚
+        </span>
+        <p className="min-w-0 text-[13px] leading-relaxed text-foreground/85">{message.interpretation}</p>
       </div>
-
-      {/* ① interpretation */}
-      <p className="mb-1 text-[13px] font-medium text-foreground">翻译小天使的解读</p>
-      <p className="mb-3 text-[13px] leading-relaxed text-foreground/80">{message.interpretation}</p>
 
       {message.interpreting ? (
         <div className="rounded-xl bg-white/60 px-3 py-2.5 text-xs text-text-secondary">
@@ -55,11 +56,11 @@ export function AiInterpretationCard({
       {/* ② guesses */}
       <div className="mb-3 rounded-xl bg-white/60 p-2.5">
         <p className="mb-2 text-[13px] font-medium text-foreground">
-          TA 内心可能想说的是…{isSender && "（你可确认）"}
+          {senderShortName}内心可能想说的是…{isSender && "（发送方可确认）"}
         </p>
 
         {isReceiver && !message.confirmed ? (
-          <p className="py-1 text-xs italic text-text-secondary">等待对方确认中…</p>
+          <p className="py-1 text-xs italic text-text-secondary">等待{senderShortName}确认中…</p>
         ) : (
           <div className="flex flex-col gap-1.5">
             {message.guessOptions.map((opt) => {
@@ -115,7 +116,7 @@ export function AiInterpretationCard({
         <div className="mb-3 rounded-xl bg-white/60 p-2.5">
           <div className="mb-1 flex items-center gap-1.5">
             <Eye className="h-3.5 w-3.5 text-[#7e6bb0]" />
-            <p className="text-[13px] font-medium text-foreground">翻译小天使悄悄告诉你 👀</p>
+            <p className="text-[13px] font-medium text-foreground">猫猫悄悄补充</p>
           </div>
           <p className="text-[13px] leading-relaxed text-foreground/80">{message.receiverHint}</p>
         </div>
@@ -152,6 +153,7 @@ export function AiInterpretationCard({
           className="mt-2.5 rounded-lg bg-white/60 px-3 py-2.5 text-[13px] leading-relaxed text-foreground/80"
         >
           小天使再补充一句：你可以试着用「我听见你在担心……」开头，会比直接解释更容易被接住。
+          也可以直接叫出{receiverShortName}的名字，把注意力放回你们正在共同面对的事。
         </motion.p>
       )}
         </>

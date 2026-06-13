@@ -39,7 +39,7 @@ export function BackgroundModal({
         <div className="mb-1 flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 shrink-0 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">开始之前，先告诉翻译小天使背景吧 ✨</h2>
+            <h2 className="text-lg font-semibold text-foreground">开始之前，先告诉猫猫背景吧</h2>
           </div>
           <button
             onClick={onClose}
@@ -50,7 +50,7 @@ export function BackgroundModal({
           </button>
         </div>
         <p className="mb-5 text-xs leading-relaxed text-text-secondary">
-          你的回答只有翻译小天使能看到，对方不可见
+          你的回答只有猫猫能看到，对方不可见
         </p>
 
         {/* field 1 */}
@@ -90,7 +90,7 @@ export function BackgroundModal({
           <label className="mb-2 block text-sm font-medium text-foreground">你希望对方能理解什么？</label>
           <VoiceTextArea
             rows={3}
-            placeholder="你最想让 TA 知道的是…（可打字或语音）"
+            placeholder="最想让对方知道的是…（可打字或语音）"
             value={hope}
             onChange={setHope}
           />

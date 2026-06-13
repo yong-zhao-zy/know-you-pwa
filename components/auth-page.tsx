@@ -168,7 +168,7 @@ export function AuthPage({ onAuthed, initialError = "" }: { onAuthed: (user: Use
           <p className="mt-1.5 text-sm leading-relaxed text-text-secondary text-pretty">
             {mode === "reset"
               ? "重置密码 / 重新注册"
-              : "让翻译小天使，帮你们更懂彼此。"}
+              : "让猫猫陪你们把话说清楚。"}
           </p>
         </motion.div>
 

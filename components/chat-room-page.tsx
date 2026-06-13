@@ -2,21 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence } from "framer-motion"
-import { ChevronLeft, Send, Mic, BarChart3, FileText, X } from "lucide-react"
+import { ChevronLeft, Send, Mic, BarChart3, FileText, Sparkles, X } from "lucide-react"
 import { Avatar } from "@/components/avatar"
 import { MessageBubble } from "@/components/message-bubble"
-import { AiInterpretationCard } from "@/components/ai-interpretation-card"
 import { BackgroundModal } from "@/components/background-modal"
 import { InsightDrawer } from "@/components/insight-drawer"
 import { useToast } from "@/components/toast"
-import {
-  generateInterpretation,
-  generateReceiverHint,
-  generateGuessOptions,
-  genId,
-} from "@/lib/storage"
+import { genId } from "@/lib/storage"
 import {
   applyInterpretationToMessage,
+  generateAiGuideBackend,
   createMessageBackend,
   getChatBackgroundsBackend,
   getMessagesBackend,
@@ -28,7 +23,7 @@ import {
 } from "@/lib/backend"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import type { MessageRow, InterpretationRow } from "@/lib/backend"
-import type { User, Friend, Message, Sender, ChatBackground, ChatBackgroundEntry, EmotionState } from "@/lib/types"
+import type { User, Friend, Message, ChatBackground, ChatBackgroundEntry, EmotionState, MessageKind } from "@/lib/types"
 
 type SpeechRecognitionLike = {
   lang: string
@@ -53,6 +48,12 @@ const EMOTION_LABELS: Record<EmotionState, string> = {
   other: "其他",
 }
 
+function getShortName(name: string) {
+  const trimmed = name.trim()
+  if (!trimmed) return "一方"
+  return Array.from(trimmed)[0] ?? trimmed
+}
+
 export function ChatRoomPage({
   currentUser,
   friend,
@@ -68,7 +69,6 @@ export function ChatRoomPage({
   const [showBgModal, setShowBgModal] = useState(true)
   const [background, setBackground] = useState<ChatBackground | null>(null)
   const [backgroundEntries, setBackgroundEntries] = useState<ChatBackgroundEntry[]>([])
-  const [viewer, setViewer] = useState<Sender>("A")
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [backgroundOpen, setBackgroundOpen] = useState(false)
   const [input, setInput] = useState("")
@@ -77,6 +77,7 @@ export function ChatRoomPage({
   const [messages, setMessages] = useState<Message[]>([])
   const [roomId, setRoomId] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [aiGuiding, setAiGuiding] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pendingInterpretationsRef = useRef(new Map<string, InterpretationRow>())
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
@@ -255,24 +256,67 @@ export function ChatRoomPage({
     setInput("")
     setSending(true)
     try {
-      const msg = await createMessageBackend(roomId, text, background)
+      const msg = await createMessageBackend(roomId, text)
       mergeMessages([msg])
     } catch {
       const fallback: Message = {
         id: genId(),
         sender: "A",
+        senderType: "user",
         text,
         createdAt: Date.now(),
-        interpretation: generateInterpretation(text),
-        guessOptions: generateGuessOptions(),
+        interpretation: "",
+        guessOptions: [],
         confirmed: false,
-        receiverHint: generateReceiverHint(text),
+        receiverHint: "",
         understood: false,
         expanded: false,
       }
       setMessages((ms) => [...ms, fallback])
     } finally {
       setSending(false)
+    }
+  }
+
+  async function requestAiGuide(kind: MessageKind, entries = backgroundEntries) {
+    if (!roomId || aiGuiding) return
+    setAiGuiding(true)
+    try {
+      const msg = await generateAiGuideBackend({
+        roomId,
+        kind,
+        currentUser,
+        friend,
+        backgrounds: entries,
+        recentMessages: messages,
+      })
+      mergeMessages([msg])
+    } catch {
+      const fallbackText =
+        kind === "ai_opening_question"
+          ? `猫猫先不判断谁对谁错。${getShortName(currentUser.nickname)}和${getShortName(
+              friend.nickname,
+            )}可以各自说一句：这件事里，最希望被理解的部分是什么？`
+          : `猫猫想先帮你们把话说清楚一点。${getShortName(currentUser.nickname)}和${getShortName(
+              friend.nickname,
+            )}可以各自补充一个具体时刻，再说那个时刻带来的感受。`
+      const fallback: Message = {
+        id: genId(),
+        sender: "AI",
+        senderType: "ai",
+        text: fallbackText,
+        createdAt: Date.now(),
+        messageKind: kind,
+        interpretation: "",
+        guessOptions: [],
+        confirmed: true,
+        receiverHint: "",
+        understood: false,
+        expanded: false,
+      }
+      setMessages((ms) => [...ms, fallback])
+    } finally {
+      setAiGuiding(false)
     }
   }
 
@@ -408,26 +452,27 @@ export function ChatRoomPage({
     setBackground(bg)
     setShowBgModal(false)
     if (!roomId) return
+    const shouldAskOpening = !messages.some((message) => message.messageKind === "ai_opening_question")
     try {
       const saved = await saveChatBackgroundBackend(roomId, bg)
       if (bg.topic.trim()) {
         renameChatRoomBackend(roomId, bg.topic.trim()).catch(() => {})
       }
-      setBackgroundEntries((entries) => {
-        const withoutOwn = entries.filter((entry) => entry.userId !== currentUser.id)
-        return [...withoutOwn, saved]
-      })
+      const withoutOwn = backgroundEntries.filter((entry) => entry.userId !== currentUser.id)
+      const nextEntries = [...withoutOwn, saved]
+      setBackgroundEntries(nextEntries)
+      if (shouldAskOpening) requestAiGuide("ai_opening_question", nextEntries)
     } catch {
-      setBackgroundEntries((entries) => {
-        const ownEntry: ChatBackgroundEntry = {
-          userId: currentUser.id,
-          background: bg,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        }
-        const withoutOwn = entries.filter((entry) => entry.userId !== currentUser.id)
-        return [...withoutOwn, ownEntry]
-      })
+      const ownEntry: ChatBackgroundEntry = {
+        userId: currentUser.id,
+        background: bg,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      const withoutOwn = backgroundEntries.filter((entry) => entry.userId !== currentUser.id)
+      const nextEntries = [...withoutOwn, ownEntry]
+      setBackgroundEntries(nextEntries)
+      if (shouldAskOpening) requestAiGuide("ai_opening_question", nextEntries)
     }
   }
 
@@ -469,27 +514,14 @@ export function ChatRoomPage({
             <span className="text-xs text-foreground">{userA.nickname}</span>
             <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">你</span>
           </div>
-          <span className="text-base">🧚</span>
+          <div className="flex items-center gap-1.5">
+            <Avatar nickname="猫猫" color="#F5F0FF" size={26} />
+            <span className="text-xs text-foreground">猫猫</span>
+          </div>
           <div className="flex items-center gap-1.5">
             <Avatar nickname={userB.nickname} color={userB.color} size={26} />
             <span className="text-xs text-foreground">{userB.nickname}</span>
           </div>
-        </div>
-
-        {/* viewer switch */}
-        <div className="flex items-center justify-center gap-1 border-t border-border bg-muted/30 py-2">
-          <span className="mr-1 text-[11px] text-text-secondary">当前视角</span>
-          {(["A", "B"] as Sender[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setViewer(s)}
-              className={`rounded-full px-3 py-1 text-xs transition-all ${
-                viewer === s ? "bg-primary text-primary-foreground" : "text-text-secondary hover:bg-muted"
-              }`}
-            >
-              {s === "A" ? userA.nickname : userB.nickname}
-            </button>
-          ))}
         </div>
       </header>
 
@@ -497,26 +529,9 @@ export function ChatRoomPage({
       <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto px-4 py-4">
         <div className="flex flex-col gap-5">
           {messages.map((m) => {
-            const align = m.sender === "A" ? "right" : "left"
             return (
               <div key={m.id} className="flex flex-col">
                 <MessageBubble message={m} userA={userA} userB={userB} />
-                <AiInterpretationCard
-                  message={m}
-                  viewer={viewer}
-                  align={align}
-                  onToggleGuess={(optionId) =>
-                    updateMessage(m.id, (mm) => ({
-                      ...mm,
-                      guessOptions: mm.guessOptions.map((o) =>
-                        o.id === optionId ? { ...o, checked: !o.checked } : o,
-                      ),
-                    }))
-                  }
-                  onConfirm={() => updateMessage(m.id, (mm) => ({ ...mm, confirmed: true }))}
-                  onUnderstood={() => updateMessage(m.id, (mm) => ({ ...mm, understood: true }))}
-                  onExpand={() => updateMessage(m.id, (mm) => ({ ...mm, expanded: true }))}
-                />
               </div>
             )
           })}
@@ -525,6 +540,17 @@ export function ChatRoomPage({
 
       {/* input bar */}
       <div className="border-t border-border bg-background px-3 py-2.5 safe-bottom">
+        <div className="mb-2 flex justify-center">
+          <button
+            type="button"
+            onClick={() => requestAiGuide("ai_clarifying_question")}
+            disabled={!roomId || aiGuiding}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/15 active:translate-y-px disabled:opacity-50"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {aiGuiding ? "猫猫正在想…" : "请猫猫介入"}
+          </button>
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -586,7 +612,7 @@ export function ChatRoomPage({
               <div className="mb-3 flex items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-foreground">本次事件背景</p>
-                  <p className="mt-0.5 text-[11px] text-text-secondary">翻译小天使已了解 🧚</p>
+                  <p className="mt-0.5 text-[11px] text-text-secondary">猫猫已了解本次背景</p>
                 </div>
                 <button
                   onClick={() => setBackgroundOpen(false)}

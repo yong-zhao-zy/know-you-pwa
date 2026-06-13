@@ -115,6 +115,18 @@ export function ChatRoomPage({
       .catch(() => {})
   }, [roomId, currentUser.id, mergeMessages])
 
+  const refreshBackgrounds = useCallback(() => {
+    if (!roomId) return Promise.resolve([] as ChatBackgroundEntry[])
+    return getChatBackgroundsBackend(roomId)
+      .then((entries) => {
+        setBackgroundEntries(entries)
+        const ownEntry = entries.find((entry) => entry.userId === currentUser.id)
+        setBackground(ownEntry?.background ?? null)
+        return entries
+      })
+      .catch(() => [] as ChatBackgroundEntry[])
+  }, [roomId, currentUser.id])
+
   useEffect(() => {
     let cancelled = false
     const roomPromise = initialRoomId ? Promise.resolve(initialRoomId) : getOrCreateRoom(currentUser.id, friend.id)
@@ -145,12 +157,10 @@ export function ChatRoomPage({
   useEffect(() => {
     if (!roomId) return
     const timer = window.setInterval(() => {
-      getChatBackgroundsBackend(roomId)
-        .then(setBackgroundEntries)
-        .catch(() => {})
+      refreshBackgrounds()
     }, 5000)
     return () => window.clearInterval(timer)
-  }, [roomId])
+  }, [roomId, refreshBackgrounds])
 
   useEffect(() => {
     if (!roomId) return
@@ -477,11 +487,17 @@ export function ChatRoomPage({
     }
   }
 
+  async function openBackgroundPanel() {
+    await refreshBackgrounds()
+    setBackgroundOpen(true)
+  }
+
   function getBackgroundFor(userId: string) {
     return backgroundEntries.find((entry) => entry.userId === userId)?.background ?? null
   }
 
   const ownBackground = getBackgroundFor(currentUser.id) ?? background
+  const friendBackground = getBackgroundFor(friend.id)
   const hasOwnBackground = Boolean(ownBackground)
 
   return (
@@ -495,7 +511,7 @@ export function ChatRoomPage({
           <h1 className="text-[15px] font-semibold text-foreground">你与 {friend.nickname} 的对话间</h1>
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setBackgroundOpen(true)}
+              onClick={openBackgroundPanel}
               className="rounded-full p-1.5 text-foreground transition-colors hover:bg-muted"
               aria-label="本次事件背景"
             >
@@ -639,7 +655,9 @@ export function ChatRoomPage({
               <div className="mb-3 flex items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-foreground">本次事件背景</p>
-                  <p className="mt-0.5 text-[11px] text-text-secondary">猫猫已了解本次背景</p>
+                  <p className="mt-0.5 text-[11px] text-text-secondary">
+                    {backgroundEntries.length > 0 ? "双方补充后，猫猫会更懂这次事件" : "还没有收到事件背景"}
+                  </p>
                 </div>
                 <button
                   onClick={() => setBackgroundOpen(false)}
@@ -652,9 +670,14 @@ export function ChatRoomPage({
               <div className="grid gap-2">
                 <BackgroundSummary
                   label={`${currentUser.nickname}（你）`}
-                  background={getBackgroundFor(currentUser.id)}
+                  background={ownBackground}
+                  emptyText="你还没有补充背景"
                 />
-                <BackgroundSummary label={friend.nickname} background={getBackgroundFor(friend.id)} />
+                <BackgroundSummary
+                  label={friend.nickname}
+                  background={friendBackground}
+                  emptyText="等待对方补充背景"
+                />
               </div>
               <button
                 type="button"
@@ -684,12 +707,20 @@ export function ChatRoomPage({
   )
 }
 
-function BackgroundSummary({ label, background }: { label: string; background: ChatBackground | null }) {
+function BackgroundSummary({
+  label,
+  background,
+  emptyText,
+}: {
+  label: string
+  background: ChatBackground | null
+  emptyText: string
+}) {
   if (!background) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-background/60 px-3 py-2">
         <p className="text-xs font-medium text-foreground">{label}</p>
-        <p className="mt-1 text-[11px] text-text-secondary">等待对方填写背景</p>
+        <p className="mt-1 text-[11px] text-text-secondary">{emptyText}</p>
       </div>
     )
   }
